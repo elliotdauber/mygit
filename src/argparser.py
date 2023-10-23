@@ -22,6 +22,14 @@ class GitArgParser:
         merge_subparser = subparsers.add_parser('merge')
         merge_subparser.add_argument('branch_name')
 
+        merge_base_subparser = subparsers.add_parser('merge-base')
+        merge_base_subparser.add_argument('rev1')
+        merge_base_subparser.add_argument('rev2')
+
+        diff_subparser = subparsers.add_parser('diff')
+        diff_subparser.add_argument('rev1')
+        diff_subparser.add_argument('rev2')
+
         branch_subparser = subparsers.add_parser('branch')
         branch_subparser.add_argument('-d', action="store_true")
         branch_subparser.add_argument('branch_name', nargs='?', default=None)
@@ -36,6 +44,9 @@ class GitArgParser:
 
         rm_subparser = subparsers.add_parser("rm")
         rm_subparser.add_argument("file")
+
+        rev_parse_subparser = subparsers.add_parser('rev-parse')
+        rev_parse_subparser.add_argument('rev')
 
         checkout_subparser = subparsers.add_parser('checkout')
         checkout_subparser.add_argument('-b', action='store_true')

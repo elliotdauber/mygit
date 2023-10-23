@@ -4,6 +4,9 @@ import struct
 from log import Log
 import binascii
 import zlib
+import re
+from index import Index
+from commit import Commit
 
 class bcolors:
     HEADER = '\033[95m'
@@ -132,3 +135,77 @@ def create_tree(index, dirpath=""):
     # Log.Debug(f"tree for {dirpath}: {tree}")
     return write_object_file(tree)
     # Log.Debug(f"tree for {dirpath}: {tree}")
+
+# returns (hash, ambigious?)
+def commit_hash_from_ref(ref):
+    parts = ref.split("/")
+    ref_types = ["tags", "heads", "remotes"]
+    
+    # if this is a full ref, resolve it
+    if parts[0] == "refs" and len(parts) >= 3:
+        full_path = os.path.join(".git", ref)
+        if os.path.exists(full_path):
+            with open(full_path, "r") as f:
+                return (f.read().strip(), False)
+        return (None, False)
+
+    # if the ref starts with a ref_type, prepend "refs/" and recursively resolve
+    if parts[0] in ref_types and len(parts) >= 2:
+        return (commit_hash_from_ref(f"refs/{ref}"), False)
+    
+    # otherwise, this is a bare ref, try prepending each ref type and recursively resolve
+    # if more than one ref_type matches, mark as ambiguous
+    possible_hashes = []
+    for ref_type in ref_types:
+        commit_hash = commit_hash_from_ref(f"refs/{ref_type}/{ref}")[0]
+        if commit_hash is not None:
+            possible_hashes.append(commit_hash)
+    
+    if len(possible_hashes) > 0:
+        return (possible_hashes[0], len(possible_hashes) > 1)
+    return (None, False)
+
+def is_valid_hash(s):
+    return re.compile(r'^[0-9a-f]{40}$').match(s)
+
+def shortened_hash(s):
+    return s[:7] if is_valid_hash(s) else s
+
+def update_ORIG_HEAD(s):
+    ORIG_HEAD_file = os.path.join(".git", "ORIG_HEAD")
+    with open(ORIG_HEAD_file, "w") as f:
+        f.write(s)
+
+def update_files_to_commit_hash(commit_hash):
+    index_file = os.path.join(".git", "index")
+    current_index = Index.FromFile(index_file)
+    new_commit = Commit.FromHash(commit_hash)
+    new_tree = new_commit.getTree()
+    new_tree_files = new_tree.getFiles()
+
+    # Create/update files that are in the branch being switched to but are not in the current branch
+    for filepath, blob in new_tree_files.items():
+        Log.Debug(f"{filepath}, {blob.sha1}")
+        index_entry = current_index.getEntryWithFilepath(filepath)
+        if index_entry is None or index_entry.getSha1Str() != blob.sha1:
+            # This file is not in the current index, so it needs to be created
+            intermediate_dirs = "/".join(filepath.split("/")[:-1])
+            if intermediate_dirs != "":
+                os.makedirs(intermediate_dirs, exist_ok=True)
+            with open(filepath, "w") as f:
+                f.write(blob.content)
+
+    # Delete files that are in the current branch but not in the branch being switched to
+    # TODO: right now, "added" files are deleted when switching to a new branch
+    for entry in current_index.entries:
+        filepath = entry.getFilepathStr()
+        if filepath not in new_tree_files.keys():
+            os.remove(filepath)
+            # Delete intermediate folders that are now empty
+            intermediate_dirs = "/".join(filepath.split("/")[:-1])
+            if intermediate_dirs != "":
+                os.removedirs(intermediate_dirs)
+
+    new_index = Index.FromTree(new_tree)
+    new_index.writeToFile(index_file)
+    # new_index.print()

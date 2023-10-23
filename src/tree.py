@@ -24,11 +24,17 @@ class Tree:
             self.sha1 = sha1
             self.path = path
 
+        def toTree(self):
+            return Tree.FromHash(self.sha1, self.path)
+
     class BlobNode:
         def __init__(self, mode, sha1, path):
             self.mode = mode
             self.sha1 = sha1
             self.path = path
+
+        def toBlob(self):
+            return Blob.FromHash(self.sha1)
 
     def __init__(self, sha1, nodes):
         self.sha1 = sha1
@@ -38,9 +44,9 @@ class Tree:
         expanded_nodes = {}
         for node in self.nodes:
             if type(node) == Tree.TreeNode:
-                expanded_nodes[node.path] = Tree.FromHash(node.sha1, node.path)
+                expanded_nodes[node.path] = node.toTree()
             elif type(node) == Tree.BlobNode:
-                expanded_nodes[node.path] = Blob.FromHash(node.sha1)
+                expanded_nodes[node.path] = node.toBlob()
         return expanded_nodes
     
     # get leaf blobs up through depth levels deep

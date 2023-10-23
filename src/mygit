@@ -2,16 +2,11 @@
 
 import sys
 import os
-import zlib
-import argparse
 import utils
 from index import Index, IndexEntry
 from log import Log
 from commit import Commit
 from tree import Tree, Blob
-import struct
-import binascii
-import shutil
 from argparser import GitArgParser
 
 MAIN_COMMAND = "mygit.py"
@@ -20,22 +15,129 @@ def abort(err):
     print(err)
     exit(1)
 
-def merge(args):
-    branch_name = args.branch_name
+def rev_parse(args, prnt=True):
+    rev = args.rev
 
-    abort('merge unimplemented')
+    symbolic_rev_files = ["HEAD", "ORIG_HEAD"]
+    result = None
+    ambigious = False
+
+    if utils.is_valid_hash(rev):
+        result = rev
+    elif rev in symbolic_rev_files:
+        file = os.path.join(".git", rev)
+        if os.path.exists(file):
+            with open(file, "r") as f:
+                content = f.read().strip()
+                if content.startswith("ref: "):
+                    ref = content.split("ref: ")[1]
+                    result = utils.commit_hash_from_ref(ref)
+                elif utils.is_valid_hash(content):
+                    result = content   
+    else:        
+        (result, ambigious) = utils.commit_hash_from_ref(rev)
+    
+    if prnt:
+        if result is None:
+            print(rev)
+            print(f"fatal: ambiguous argument '{rev}': unknown revision or path not in the working tree.")
+            # print("Use '--' to separate paths from revisions, like this:")
+            # print("'git <command> [<revision>...] -- [<file>...]'")
+        else:
+            if ambigious:
+                print(f"warning: refname '{rev}' is ambiguous.")
+            print(result)
+
+    return result
+
+
+def diff(args):
+    rev1 = args.rev1
+    rev2 = args.rev2
+
+    rev1_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev1}"), prnt=False)
+    rev2_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev2}"), prnt=False)
+
+    tree1 = Commit.FromHash(rev1_hash).getTree()
+    tree2 = Commit.FromHash(rev2_hash).getTree()
+
+    tree1_files = tree1.getFiles()
+    tree2_files = tree2.getFiles()
+
+    for filepath in tree1_files.keys():
+        if filepath in tree2_files:
+            blob1 = tree1_files[filepath]
+            blob2 = tree2_files[filepath]
+
+            if blob1.sha1 != blob2.sha1:
+                print(f"diff --git a/{filepath} b/{filepath}")
+                # TODO: add mode to this:
+                print(f"index {utils.shortened_hash(blob1.sha1)}..{utils.shortened_hash(blob2.sha1)}")
+                print(f"--- a/{filepath}")
+                print(f"+++ b/{filepath}")
+                print(f"'{blob1.content}'")
+                print(f"'{blob2.content}'")
+            
+    abort('unimplemented')
+
+# returns the hash of the merge base given two revisions
+def merge_base(args, prnt=True):
+    rev1 = args.rev1
+    rev2 = args.rev2
+
+    rev1_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev1}"), prnt=False)
+    rev2_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev2}"), prnt=False)
+
+    rev1_reachable_commits = Commit.FromHash(rev1_hash).reachableCommits()
+    rev2_reachable_commits = Commit.FromHash(rev2_hash).reachableCommits()
+
+    common_ancestors = set(rev1_reachable_commits).intersection(set(rev2_reachable_commits))
+    if len(common_ancestors) > 0:
+        most_recent_common_ancestor = sorted(list(common_ancestors), key=lambda commit: commit.commitDateTime(), reverse=True)[0].sha1
+        if prnt:
+            print(most_recent_common_ancestor)
+        return most_recent_common_ancestor
+    return None
+    
+
+def merge(args):
+    merge_source_rev = args.branch_name
+    current_branch_name = utils.current_branch()
+
+    merge_source_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {merge_source_rev}"), prnt=False)
+    current_branch_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {current_branch_name}"), prnt=False)
+
+    # If the commit hashes of the source and destination are the same, nothing to do
+    if merge_source_hash == current_branch_hash:
+        print("Already up to date.")
+        return
+
+    # ge
+    # source_reachable_commits = Commit.FromHash(merge_source_hash).reachableCommits()
+    # current_branch_reachable_commits = Commit.FromHash(current_branch_hash).reachableCommits()
+
+    # find the merge base
+    merge_base_hash = merge_base(GitArgParser.Instance().parse(f"merge-base {args.branch_name} {current_branch_name}"), prnt=False)
+    print(merge_base_hash)
+    # TODO: is this the only condition? what if merge_base_hash is in the history of current branch?
+    # maybe gets more complicated with 
+    if merge_base_hash == current_branch_hash:
+        # This is a fast forward, just update current branch's head pointer
+        print(f"Updating {utils.shortened_hash(current_branch_hash)}..{utils.shortened_hash(merge_source_hash)}")
+        print("Fast-Forward")
+        utils.update_files_to_commit_hash(merge_source_hash)
+        update_ref(GitArgParser.Instance().parse(f"update-ref {os.path.join('refs', 'heads', current_branch_name)} {merge_source_hash}"))
+    else:
+        abort('merge unimplemented')
 
 def commit(args):
     message = args.m
     if message is None:
         abort("fatal: must supply a message using -m")
-    # Log.Debug(f"commit message: {message}")
 
     current_branch = utils.current_branch()
     if current_branch is None:
         abort("fatal: not on a branch")
-    
-    # abort("commit unimplemented")
 
     parent_commit = None
     ref_file = os.path.join(".git", "refs", "heads", current_branch)
@@ -47,7 +149,7 @@ def commit(args):
     commit_file_content = f'tree {tree_hash}\n{"parent " + parent_commit if parent_commit else ""}\nauthor Elliot Dauber <elliotkdauber@gmail.com> 1697451735 +0900\ncommitter Elliot Dauber <elliotkdauber@gmail.com> 1697451735 +0900\n\n{message}\n'
     commit_file_header = f'commit {len(commit_file_content)}\0'
     commit_hash = utils.write_object_file((commit_file_header + commit_file_content).encode('utf-8'))
-    print(f"[{current_branch} (root-commit) {commit_hash[:7]}] {message}")
+    print(f"[{current_branch} (root-commit) {utils.shortened_hash(commit_hash)}] {message}")
 
     # TODO: print the other details
 
@@ -106,7 +208,7 @@ def branch(args):
         
         with open(ref_file, "r") as f:
             branch_hash = f.read().strip()
-            print(f"Deleted branch {branch_name} (was {branch_hash[:7]}).")
+            print(f"Deleted branch {branch_name} (was {utils.shortened_hash(branch_hash)}).")
 
         os.remove(ref_file)
         # TODO: could clean up intermediate folders that have become empty
@@ -155,38 +257,7 @@ def checkout(args):
     with open(branch_ref_file, "r") as f:
         branch_commit = f.read().strip()
 
-    index_file = os.path.join(".git", "index")
-    current_index = Index.FromFile(index_file)
-    new_commit = Commit.FromHash(branch_commit)
-    new_tree = new_commit.getTree()
-    new_tree_files = new_tree.getFiles()
-
-    # Create/update files that are in the branch being switched to but are not in the current branch
-    for filepath, blob in new_tree_files.items():
-        Log.Debug(f"{filepath}, {blob.sha1}")
-        index_entry = current_index.getEntryWithFilepath(filepath)
-        if index_entry is None or index_entry.getSha1Str() != blob.sha1:
-            # This file is not in the current index, so it needs to be created
-            intermediate_dirs = "/".join(filepath.split("/")[:-1])
-            if intermediate_dirs != "":
-                os.makedirs(intermediate_dirs, exist_ok=True)
-            with open(filepath, "w") as f:
-                f.write(blob.content)
-
-    # Delete files that are in the current branch but not in the branch being switched to
-    # TODO: right now, "added" files are deleted when switching to a new branch
-    for entry in current_index.entries:
-        filepath = entry.getFilepathStr()
-        if filepath not in new_tree_files.keys():
-            os.remove(filepath)
-            # Delete intermediate folders that are now empty
-            intermediate_dirs = "/".join(filepath.split("/")[:-1])
-            if intermediate_dirs != "":
-                os.removedirs(intermediate_dirs)
-
-    new_index = Index.FromTree(new_tree)
-    new_index.writeToFile(index_file)
-    new_index.print()
+    utils.update_files_to_commit_hash(branch_commit)
 
     # update the HEAD ref
     HEAD_file = os.path.join(".git", "HEAD")
@@ -204,7 +275,7 @@ def update_ref(args):
     with open(ref_file, "w") as f:
         f.write(commit_hash)
 
-def hash_object(args):
+def hash_object(args, prnt=True):
     write = args.w
     stdin = args.stdin
     filename = args.filename
@@ -222,7 +293,8 @@ def hash_object(args):
     db_object = f"blob {len(object_string)}\0{object_string}"
     db_object_encoded = db_object.encode('utf-8')
     sha1_hash = utils.sha1hash(db_object_encoded)
-    print(sha1_hash)
+    if prnt:
+        print(sha1_hash)
 
     if write:
         utils.write_object_file(db_object_encoded)
@@ -298,7 +370,7 @@ def update_index(args):
         else:
 
             hash_object_args = GitArgParser.Instance().parse(f"hash-object -w {filepath}")
-            object_hash = hash_object(hash_object_args)
+            object_hash = hash_object(hash_object_args, prnt=False)
 
             newEntry = IndexEntry.FromFile(filepath, object_hash)
             index.addEntry(newEntry)
@@ -454,8 +526,14 @@ if __name__ == "__main__":
         checkout(args)
     elif args.command == 'merge':
         merge(args)
+    elif args.command == 'merge-base':
+        merge_base(args)
     elif args.command == 'restore':
         restore(args)
+    elif args.command == 'rev-parse':
+        rev_parse(args)
+    elif args.command == 'diff':
+        diff(args)
     elif args.command == "hash-object":
         hash_object(args)
     elif args.command == "cat-file":
