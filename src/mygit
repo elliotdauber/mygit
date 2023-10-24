@@ -88,11 +88,12 @@ def diff(args):
                 print(f"index {utils.shortened_hash(blob1.sha1)}..{utils.shortened_hash(blob2.sha1)}")
                 print(f"--- a/{filepath}")
                 print(f"+++ b/{filepath}")
-                print(f"{utils.bcolors.OKCYAN}@@ -{len(blob1_lines)} +{len(blob2_lines)} @@{utils.bcolors.ENDC}")
+                print(f"{utils.bcolors.OKCYAN}@@ -1,{len(blob1_lines)} +1,{len(blob2_lines)} @@{utils.bcolors.ENDC}")
                 trace = utils.myers_diff(blob1_lines, blob2_lines)
                 if trace is None:
                     abort("fatal: could not diff")
                 blob1_idx, blob2_idx = 0, 0
+                Log.Debug(trace)
                 for t in trace:
                     if t == "D":
                         print(f"{utils.bcolors.FAIL}-{blob1_lines[blob1_idx]}{utils.bcolors.ENDC}")

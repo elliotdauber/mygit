@@ -272,9 +272,16 @@ def myers_diff_get_path(s1, s2, V):
         points.append((x, y))
 
         x, y = prev_x, prev_y
-    points.append((0,0))
 
     points.reverse()
+
+    # add any necessary points on the diagonal at the beginning of the sequence
+    first_pt = points[0]
+    new_pt = min(first_pt[0], first_pt[1])
+    while new_pt >= 0:
+        points.insert(0, (new_pt, new_pt))
+        new_pt -= 1
+
     Log.Debug(points)
     
     trace = []
