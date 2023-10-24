@@ -50,6 +50,16 @@ def rev_parse(args, prnt=True):
 
     return result
 
+def stash(args):
+    command = args.command
+
+    if command is None:
+        pass
+    elif command == 'pop':
+        pass
+
+    abort('unimplemented')
+
 
 def diff(args):
     rev1 = args.rev1
@@ -58,27 +68,41 @@ def diff(args):
     rev1_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev1}"), prnt=False)
     rev2_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev2}"), prnt=False)
 
-    tree1 = Commit.FromHash(rev1_hash).getTree()
-    tree2 = Commit.FromHash(rev2_hash).getTree()
+    tree1, tree2 = Commit.FromHash(rev1_hash).getTree(), Commit.FromHash(rev2_hash).getTree()
 
-    tree1_files = tree1.getFiles()
-    tree2_files = tree2.getFiles()
+    tree1_files, tree2_files = tree1.getFiles(), tree2.getFiles()
 
     for filepath in tree1_files.keys():
         if filepath in tree2_files:
-            blob1 = tree1_files[filepath]
-            blob2 = tree2_files[filepath]
+            blob1, blob2 = tree1_files[filepath], tree2_files[filepath]
 
             if blob1.sha1 != blob2.sha1:
+                # TODO: is this split sufficient?
+                blob1_lines, blob2_lines = blob1.content.split("\n"), blob2.content.split("\n")
+                if blob1_lines[-1].strip() == '' and blob2_lines[-1].strip() == '':
+                    # remove end line of both blobs if it is blank (not sure if this is totally right)
+                    blob1_lines, blob2_lines = blob1_lines[:-1], blob2_lines[:-1]
+
                 print(f"diff --git a/{filepath} b/{filepath}")
                 # TODO: add mode to this:
                 print(f"index {utils.shortened_hash(blob1.sha1)}..{utils.shortened_hash(blob2.sha1)}")
                 print(f"--- a/{filepath}")
                 print(f"+++ b/{filepath}")
-                print(f"'{blob1.content}'")
-                print(f"'{blob2.content}'")
-            
-    abort('unimplemented')
+                print(f"{utils.bcolors.OKCYAN}@@ -{len(blob1_lines)} +{len(blob2_lines)} @@{utils.bcolors.ENDC}")
+                trace = utils.myers_diff(blob1_lines, blob2_lines)
+                if trace is None:
+                    abort("fatal: could not diff")
+                blob1_idx, blob2_idx = 0, 0
+                for t in trace:
+                    if t == "D":
+                        print(f"{utils.bcolors.FAIL}-{blob1_lines[blob1_idx]}{utils.bcolors.ENDC}")
+                        blob1_idx += 1
+                    elif t == "A":
+                        print(f"{utils.bcolors.OKGREEN}+{blob2_lines[blob2_idx]}{utils.bcolors.ENDC}")
+                        blob2_idx += 1
+                    else:
+                        print(f" {blob1_lines[blob1_idx]}")
+                        blob1_idx, blob2_idx = blob1_idx + 1, blob2_idx + 1
 
 # returns the hash of the merge base given two revisions
 def merge_base(args, prnt=True):
@@ -184,9 +208,22 @@ def rm(args):
     os.remove(filepath)
 
 def log(args):
-    # TODO: should be able to supply branch name as well as commit hash
-    # Should make utils.getCommitHash() that takes a string and resolves it if it is a ref (branch or tag)
-    commit_hash = args.commit_hash if args.commit_hash is not None else Commit.CurrentCommitHash()
+    rev = args.rev
+
+    commit_hash = None
+    if rev is None:
+        # TODO: what if no commits yet?
+        commit_hash = Commit.CurrentCommitHash()
+        if commit_hash is None:
+            print(f"fatal: your current branch '{utils.current_branch()}' does not have any commits yet")
+            return
+    else:
+        commit_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev}"), prnt=False)
+        if commit_hash is None:
+            print(f"fatal: ambiguous argument '{rev}': unknown revision or path not in the working tree.")
+            return
+            # print("Use '--' to separate paths from revisions, like this:")
+            # print('git <command> [<revision>...] -- [<file>...]')
     commit = Commit.FromHash(commit_hash)
     commit.printLog()
 
@@ -518,6 +555,8 @@ if __name__ == "__main__":
         log(args)
     elif args.command == 'commit':
         commit(args)
+    elif args.command == 'stash':
+        stash(args)
     elif args.command == 'branch':
         branch(args)
     elif args.command == 'tag':

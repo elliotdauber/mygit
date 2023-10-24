@@ -141,6 +141,8 @@ def commit_hash_from_ref(ref):
     parts = ref.split("/")
     ref_types = ["tags", "heads", "remotes"]
     
+    # TODO: make this work for refs/stash or just stash
+    
     # if this is a full ref, resolve it
     if parts[0] == "refs" and len(parts) >= 3:
         full_path = os.path.join(".git", ref)
@@ -209,3 +211,115 @@ def update_files_to_commit_hash(commit_hash):
     new_index = Index.FromTree(new_tree)
     new_index.writeToFile(index_file)
     # new_index.print()
+
+def myers_diff(s1, s2):
+    n = len(s1)
+    m = len(s2)
+    MAX = n + m
+
+    v = [0 for _ in range(-MAX, MAX + 1)]
+    V = []
+    v[1] = 0
+
+    found = False
+    for d in range(MAX+1):
+        Log.Debug(f"d = {d}")
+        for k in range(-d, d+1, 2):
+            Log.Debug(f"k = {k}, v[k-1] = {v[k-1]}, v[k+1] = {v[k+1]}")
+            if k == -d or (k != d and v[k-1] < v[k+1]):
+                x = v[k+1]
+            else:
+                x = v[k-1] + 1
+            
+            y = x - k
+
+            Log.Debug(f"checking if s1[{x}] == s2[{y}]")
+            while x < n and y < m and s1[x] == s2[y]:
+                Log.Debug(f"incrementing x and y")
+                x, y = x+1, y+1
+
+            Log.Debug(f"assigning v[{k}] = {x}")
+            v[k] = x
+
+            found = x >= n and y >= m
+            if found: break
+        
+        V.append(v.copy())
+        if found:
+            Log.Debug(f"found d: {d}")
+            return myers_diff_get_path(s1, s2, V)
+    # theoretically not possible:
+    return None
+
+def myers_diff_get_path(s1, s2, V):
+    x, y = len(s1), len(s2)
+    points = []
+    for d in reversed(range(len(V) - 1)):
+        v = V[d]
+        k = x - y
+        Log.Debug(f"d={d}, k={k}, x={x}, y={y}")
+
+        if k == -d or (k != d and v[k - 1] < v[k + 1]):
+            prev_k = k + 1
+        else:
+            prev_k = k - 1
+        prev_x = v[prev_k]
+        prev_y = prev_x - prev_k
+        
+        while x > prev_x and y > prev_y:
+            points.append((x, y))
+            x, y = x - 1, y - 1
+        points.append((x, y))
+
+        x, y = prev_x, prev_y
+    points.append((0,0))
+
+    points.reverse()
+    Log.Debug(points)
+    
+    trace = []
+    for i in range(len(points) - 1):
+        point_start = points[i]
+        point_end = points[i+1]
+        x_start, y_start = point_start
+        x_end, y_end = point_end
+        dx, dy = x_end - x_start, y_end - y_start
+        if dx == dy:
+            trace.append("M")
+        elif dx > dy:
+            trace.append("D")
+        else:
+            trace.append("A")
+
+    return trace
+
+
+# def myers_path_rec(s1, s2, V, d, k):
+#     v = V[d]
+#     x = v[k]
+#     y = x - k
+#     print(f"d={d}, k={k}, x={x}, y={y}")
+    
+#     if d == 0:
+#         print("done!")
+#         print((0, 0), (x, y))
+#     else:
+#         while s1[x - 1] == s2[y - 1]:
+#             print(f"{s1}[{x-1}] = {s1[x-1]}, {s2}[{y-1}] = {s2[y-1]}")
+#             x, y = x-1, y-1
+
+#         print(x, y)
+
+#         # assume this was a down move, check if true
+#         d_prev = d - 1
+#         v_prev = V[d_prev]
+#         k_prev = k# + 1
+#         # print(f"d_prev={d_prev}, k_prev={k_prev}, \nv_prev={v_prev}, \nv={v}")
+#         down = k_prev == -d_prev or (k_prev != d_prev and v_prev[k_prev-1] < v_prev[k_prev+1])
+#         print(down)
+#         x_start, y_start = x, y
+#         if down:
+#             y_start -= 1
+#         else:
+#             x_start -= 1
+#         myers_path_rec(s1, s2, V, d-1, x_start - y_start)

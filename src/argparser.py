@@ -17,7 +17,7 @@ class GitArgParser:
         commit_subparser.add_argument('-m')
 
         log_subparser = subparsers.add_parser('log')
-        log_subparser.add_argument('commit_hash', nargs='?', default=None)
+        log_subparser.add_argument('rev', nargs='?', default=None)
 
         merge_subparser = subparsers.add_parser('merge')
         merge_subparser.add_argument('branch_name')
@@ -47,6 +47,9 @@ class GitArgParser:
 
         rev_parse_subparser = subparsers.add_parser('rev-parse')
         rev_parse_subparser.add_argument('rev')
+
+        stash_subparser = subparsers.add_parser('stash')
+        stash_subparser.add_argument('command', nargs='?', default=None)
 
         checkout_subparser = subparsers.add_parser('checkout')
         checkout_subparser.add_argument('-b', action='store_true')
