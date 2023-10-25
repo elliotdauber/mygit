@@ -8,6 +8,7 @@ from log import Log
 from commit import Commit
 from tree import Tree, Blob
 from argparser import GitArgParser
+from diff import CommitDiff
 
 MAIN_COMMAND = "mygit.py"
 
@@ -65,45 +66,22 @@ def diff(args):
     rev1 = args.rev1
     rev2 = args.rev2
 
-    rev1_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev1}"), prnt=False)
-    rev2_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev2}"), prnt=False)
+    commit_diff = None
+    if rev1 is None and rev2 is None:
+        # Compare the working dir against the current index
+        tree1 = Tree.FromHash(write_tree(prnt=False))
+        tree2 = Tree.FromWorkingDir()
+        commit_diff = CommitDiff(tree1, tree2)
+    else:
+        # TODO: there are other cases
+        rev1_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev1}"), prnt=False)
+        rev2_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev2}"), prnt=False)
+        tree1, tree2 = Commit.FromHash(rev1_hash).getTree(), Commit.FromHash(rev2_hash).getTree()
+        commit_diff = CommitDiff(tree1, tree2)
 
-    tree1, tree2 = Commit.FromHash(rev1_hash).getTree(), Commit.FromHash(rev2_hash).getTree()
+    if commit_diff is not None:
+        commit_diff.print()
 
-    tree1_files, tree2_files = tree1.getFiles(), tree2.getFiles()
-
-    for filepath in tree1_files.keys():
-        if filepath in tree2_files:
-            blob1, blob2 = tree1_files[filepath], tree2_files[filepath]
-
-            if blob1.sha1 != blob2.sha1:
-                # TODO: is this split sufficient?
-                blob1_lines, blob2_lines = blob1.content.split("\n"), blob2.content.split("\n")
-                if blob1_lines[-1].strip() == '' and blob2_lines[-1].strip() == '':
-                    # remove end line of both blobs if it is blank (not sure if this is totally right)
-                    blob1_lines, blob2_lines = blob1_lines[:-1], blob2_lines[:-1]
-
-                print(f"diff --git a/{filepath} b/{filepath}")
-                # TODO: add mode to this:
-                print(f"index {utils.shortened_hash(blob1.sha1)}..{utils.shortened_hash(blob2.sha1)}")
-                print(f"--- a/{filepath}")
-                print(f"+++ b/{filepath}")
-                print(f"{utils.bcolors.OKCYAN}@@ -1,{len(blob1_lines)} +1,{len(blob2_lines)} @@{utils.bcolors.ENDC}")
-                trace = utils.myers_diff(blob1_lines, blob2_lines)
-                if trace is None:
-                    abort("fatal: could not diff")
-                blob1_idx, blob2_idx = 0, 0
-                Log.Debug(trace)
-                for t in trace:
-                    if t == "D":
-                        print(f"{utils.bcolors.FAIL}-{blob1_lines[blob1_idx]}{utils.bcolors.ENDC}")
-                        blob1_idx += 1
-                    elif t == "A":
-                        print(f"{utils.bcolors.OKGREEN}+{blob2_lines[blob2_idx]}{utils.bcolors.ENDC}")
-                        blob2_idx += 1
-                    else:
-                        print(f" {blob1_lines[blob1_idx]}")
-                        blob1_idx, blob2_idx = blob1_idx + 1, blob2_idx + 1
 
 # returns the hash of the merge base given two revisions
 def merge_base(args, prnt=True):
@@ -169,7 +147,7 @@ def commit(args):
     if os.path.exists(ref_file):
         with open(ref_file, "r") as f:
             parent_commit = f.read()
-    tree_hash = write_tree()
+    tree_hash = write_tree(prnt=False)
 
     commit_file_content = f'tree {tree_hash}\n{"parent " + parent_commit if parent_commit else ""}\nauthor Elliot Dauber <elliotkdauber@gmail.com> 1697451735 +0900\ncommitter Elliot Dauber <elliotkdauber@gmail.com> 1697451735 +0900\n\n{message}\n'
     commit_file_header = f'commit {len(commit_file_content)}\0'
@@ -339,10 +317,11 @@ def hash_object(args, prnt=True):
 
     return sha1_hash
 
-def write_tree():
+def write_tree(prnt=True):
     index = Index.FromFile(os.path.join(".git", "index"))
     tree_hash = utils.create_tree(index)
-    print(tree_hash)
+    if prnt:
+        print(tree_hash)
     return tree_hash
 
 def cat_file(args):

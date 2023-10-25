@@ -27,8 +27,8 @@ class GitArgParser:
         merge_base_subparser.add_argument('rev2')
 
         diff_subparser = subparsers.add_parser('diff')
-        diff_subparser.add_argument('rev1')
-        diff_subparser.add_argument('rev2')
+        diff_subparser.add_argument('rev1', nargs='?', default=None)
+        diff_subparser.add_argument('rev2', nargs='?', default=None)
 
         branch_subparser = subparsers.add_parser('branch')
         branch_subparser.add_argument('-d', action="store_true")

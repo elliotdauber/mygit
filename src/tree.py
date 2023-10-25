@@ -67,6 +67,15 @@ class Tree:
         for node in self.nodes:
             print(f"{node.mode} {'blob' if type(node) == Tree.BlobNode else 'tree'} {node.sha1}    {node.path}")
 
+    def FromWorkingDir():
+        # TODO: implement
+        print('unimplemented')
+        exit(1)
+        
+        all_files = utils.files_in_current_dir()
+        print(all_files)
+        return Tree("", [])
+
     @staticmethod
     def FromHash(tree_hash, tree_dir=""):
         object_decompressed = utils.read_object_file(tree_hash)

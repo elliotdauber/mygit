@@ -69,9 +69,6 @@ class Commit:
             print(f"    committer {commit.committer}")
             print("")
             print(f"    {commit.message}\n")
-            # TODO: this is not right. we need to get the set of all reachable commits and print in chronological order
-            # if len(self.parents) > 0:
-            #     Commit.FromHash(self.parents[0]).printLog()
 
     def getTree(self):
         return Tree.FromHash(self.tree_hash)
