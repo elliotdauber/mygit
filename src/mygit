@@ -62,7 +62,7 @@ def stash(args):
     abort('unimplemented')
 
 
-def diff(args):
+def diff(args, prnt=True):
     rev1 = args.rev1
     rev2 = args.rev2
 
@@ -79,8 +79,10 @@ def diff(args):
         tree1, tree2 = Commit.FromHash(rev1_hash).getTree(), Commit.FromHash(rev2_hash).getTree()
         commit_diff = CommitDiff(tree1, tree2)
 
-    if commit_diff is not None:
+    if commit_diff is not None and prnt:
         commit_diff.print()
+
+    return commit_diff
 
 
 # returns the hash of the merge base given two revisions
@@ -115,21 +117,50 @@ def merge(args):
         print("Already up to date.")
         return
 
-    # ge
     # source_reachable_commits = Commit.FromHash(merge_source_hash).reachableCommits()
     # current_branch_reachable_commits = Commit.FromHash(current_branch_hash).reachableCommits()
 
     # find the merge base
     merge_base_hash = merge_base(GitArgParser.Instance().parse(f"merge-base {args.branch_name} {current_branch_name}"), prnt=False)
-    print(merge_base_hash)
+
     # TODO: is this the only condition? what if merge_base_hash is in the history of current branch?
     # maybe gets more complicated with 
     if merge_base_hash == current_branch_hash:
         # This is a fast forward, just update current branch's head pointer
         print(f"Updating {utils.shortened_hash(current_branch_hash)}..{utils.shortened_hash(merge_source_hash)}")
         print("Fast-Forward")
+
+        commit_diff = diff(GitArgParser.Instance().parse(f"diff {merge_base_hash} {merge_source_hash}"), prnt=False)
+        if commit_diff is not None:
+            file_diffs = commit_diff.getFileDiffs()
+            changes_to_print = {}
+            num_insertions = 0
+            num_deletions = 0
+            for dff in file_diffs:
+                if not dff.filepathChanged():
+                    insertions_str = f"{utils.bcolors.OKGREEN}{'+' * dff.numInsertions()}{utils.bcolors.ENDC}"
+                    deletions_str = f"{utils.bcolors.FAIL}{'-' * dff.numDeletions()}{utils.bcolors.ENDC}"
+                    changes_to_print[dff.base_filepath] = f"{dff.numChanges()} {insertions_str}{deletions_str}"
+                    num_insertions += dff.numInsertions()
+                    num_deletions += dff.numDeletions()
+
+            # print the changes overview for each file
+            rhs_length = sorted(map(lambda fp : len(fp), changes_to_print.keys()))[-1]
+            for filepath, change in sorted(changes_to_print.items()):
+                print(f" {filepath}{' ' * (rhs_length - len(filepath))} | {change}")
+
+            # print the overall summary
+            summary_parts = [f"{len(changes_to_print)} files changed"]
+            if num_insertions > 0:
+                summary_parts.append(f"{num_insertions} insertions(+)")
+            if num_deletions > 0:
+                summary_parts.append(f"{num_deletions} deletions(-)")
+            print(f" {', '.join(summary_parts)}")
+
+        # update the files (for a fast-forward this is easy)
         utils.update_files_to_commit_hash(merge_source_hash)
         update_ref(GitArgParser.Instance().parse(f"update-ref {os.path.join('refs', 'heads', current_branch_name)} {merge_source_hash}"))
+
     else:
         abort('merge unimplemented')
 
@@ -155,6 +186,8 @@ def commit(args):
     print(f"[{current_branch} (root-commit) {utils.shortened_hash(commit_hash)}] {message}")
 
     # TODO: print the other details
+    # this will be something of the form: 3 files changed, 5 insertions(+), 3 deletions(-)
+    # this is already done in merge(), so just refactor that
 
     #update refs/heads/{current_branch} with hash of file
     with open(ref_file, "w") as f:

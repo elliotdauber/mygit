@@ -67,12 +67,23 @@ class Tree:
         for node in self.nodes:
             print(f"{node.mode} {'blob' if type(node) == Tree.BlobNode else 'tree'} {node.sha1}    {node.path}")
 
+    # def applyDiff(self, diff):
+    #     new_tree = Tree()
+    #     files_in_tree = self.getFiles()
+    #     for file_diff in diff.getFileDiffs():
+    #         pass
+    #     return newTree
+
+    @staticmethod
     def FromWorkingDir():
         # TODO: implement
         print('unimplemented')
         exit(1)
         
-        all_files = utils.files_in_current_dir()
+        # TODO: walk the current dir, build up the tree just as we would do with an Index
+        # Maybe it's easiest to make an Index from the working dir, or maybe this is messy
+        # Could be time for a refactor to make this possible cleanly
+        all_files = sorted(utils.files_in_current_dir())
         print(all_files)
         return Tree("", [])
 

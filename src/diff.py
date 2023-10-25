@@ -16,12 +16,12 @@ class FileDiff:
         self.base_blob = base_blob
         self.target_blob = target_blob
 
-        (self.base_lines, self.target_lines) = self.content_lines()
+        (self.base_lines, self.target_lines) = self.__content_lines()
 
         self.trace = FileDiff.MyersDiff(self.base_lines, self.target_lines)
 
     # returns (base_lines, target_lines)
-    def content_lines(self):
+    def __content_lines(self):
         # TODO: is this split sufficient?
         base_lines, target_lines = self.base_blob.content.split("\n"), self.target_blob.content.split("\n")
 
@@ -30,6 +30,18 @@ class FileDiff:
             base_lines, target_lines = base_lines[:-1], target_lines[:-1]
 
         return (base_lines, target_lines)
+    
+    def filepathChanged(self):
+        return self.base_filepath != self.target_filepath
+    
+    def numInsertions(self):
+        return self.trace.count(DiffTraceAction.ADD)
+    
+    def numDeletions(self):
+        return self.trace.count(DiffTraceAction.DELETE)
+    
+    def numChanges(self):
+        return self.numInsertions() + self.numDeletions()
 
     def print(self):
         print(f"diff --git a/{self.base_filepath} b/{self.target_filepath}")
@@ -37,7 +49,7 @@ class FileDiff:
         print(f"index {utils.shortened_hash(self.base_blob.sha1)}..{utils.shortened_hash(self.target_blob.sha1)}")
         print(f"--- a/{self.base_filepath}")
         print(f"+++ b/{self.target_filepath}")
-        (base_lines, target_lines) = self.content_lines()
+        (base_lines, target_lines) = self.__content_lines()
         print(f"{utils.bcolors.OKCYAN}@@ -1,{len(base_lines)} +1,{len(target_lines)} @@{utils.bcolors.ENDC}")
 
         blob1_idx, blob2_idx = 0, 0
@@ -159,6 +171,9 @@ class CommitDiff:
             if blob1.sha1 != blob2.sha1:
                 diff = FileDiff(blob1, filepath, blob2, filepath)
                 self.file_diffs.append(diff)
+
+    def getFileDiffs(self):
+        return self.file_diffs
 
     def print(self):
         for file_diff in self.file_diffs:
