@@ -51,6 +51,7 @@ class Tree:
     
     # get leaf blobs up through depth levels deep
     # if depth == -1, gets all leaf blobs
+    # returns dict of form filepath (str): Blob
     def getFiles(self, depth=-1):
         files = {}
         for node in self.nodes:

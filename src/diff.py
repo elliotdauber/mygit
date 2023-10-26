@@ -173,8 +173,15 @@ class CommitDiff:
                 self.file_diffs.append(diff)
 
     def getFileDiffs(self):
-        return self.file_diffs
+        return sorted(self.file_diffs, key=lambda dff: dff.base_filepath)
+    
+    def getFileDiff(self, filepath):
+        # TODO: this doesn't explicitly handle renames
+        for dff in self.getFileDiffs():
+            if dff.base_filepath == filepath:
+                return dff
+        return None
 
     def print(self):
-        for file_diff in self.file_diffs:
+        for file_diff in self.getFileDiffs():
             file_diff.print()

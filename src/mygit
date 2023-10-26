@@ -8,7 +8,7 @@ from log import Log
 from commit import Commit
 from tree import Tree, Blob
 from argparser import GitArgParser
-from diff import CommitDiff
+from diff import CommitDiff, DiffTraceAction
 
 MAIN_COMMAND = "mygit.py"
 
@@ -104,16 +104,47 @@ def merge_base(args, prnt=True):
         return most_recent_common_ancestor
     return None
     
+class MergeConflict:
+    def __init__(self, start_lineno, source_label, target_label):
+        self.start_lineno = start_lineno
+        self.source_label = source_label
+        self.target_label = target_label
+        self.source_lines = []
+        self.target_lines = []
+
+    def addTargetLine(self, line):
+        self.target_lines.append(line)
+
+    def addSourceLine(self, line):
+        self.source_lines.append(line)
+
+    def getStartLineno(self):
+        return self.start_lineno
+
+    def getAllLines(self):
+        if len(self.target_lines) + len(self.source_lines) == 0:
+            return []
+
+        all_lines = []
+        all_lines.append(f"<<<<<<< {self.target_label}")
+        for line in self.target_lines:
+            all_lines.append(line)
+        all_lines.append("=======")
+        for line in self.source_lines:
+            all_lines.append(line)
+        all_lines.append(f">>>>>>> {self.source_label}")
+        return all_lines
+
 
 def merge(args):
     merge_source_rev = args.branch_name
-    current_branch_name = utils.current_branch()
+    target_branch_name = utils.current_branch()
 
     merge_source_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {merge_source_rev}"), prnt=False)
-    current_branch_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {current_branch_name}"), prnt=False)
+    merge_target_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {target_branch_name}"), prnt=False)
 
     # If the commit hashes of the source and destination are the same, nothing to do
-    if merge_source_hash == current_branch_hash:
+    if merge_source_hash == merge_target_hash:
         print("Already up to date.")
         return
 
@@ -121,13 +152,13 @@ def merge(args):
     # current_branch_reachable_commits = Commit.FromHash(current_branch_hash).reachableCommits()
 
     # find the merge base
-    merge_base_hash = merge_base(GitArgParser.Instance().parse(f"merge-base {args.branch_name} {current_branch_name}"), prnt=False)
+    merge_base_hash = merge_base(GitArgParser.Instance().parse(f"merge-base {args.branch_name} {target_branch_name}"), prnt=False)
 
     # TODO: is this the only condition? what if merge_base_hash is in the history of current branch?
     # maybe gets more complicated with 
-    if merge_base_hash == current_branch_hash:
+    if merge_base_hash == merge_target_hash:
         # This is a fast forward, just update current branch's head pointer
-        print(f"Updating {utils.shortened_hash(current_branch_hash)}..{utils.shortened_hash(merge_source_hash)}")
+        print(f"Updating {utils.shortened_hash(merge_target_hash)}..{utils.shortened_hash(merge_source_hash)}")
         print("Fast-Forward")
 
         commit_diff = diff(GitArgParser.Instance().parse(f"diff {merge_base_hash} {merge_source_hash}"), prnt=False)
@@ -159,10 +190,150 @@ def merge(args):
 
         # update the files (for a fast-forward this is easy)
         utils.update_files_to_commit_hash(merge_source_hash)
-        update_ref(GitArgParser.Instance().parse(f"update-ref {os.path.join('refs', 'heads', current_branch_name)} {merge_source_hash}"))
+        update_ref(GitArgParser.Instance().parse(f"update-ref {os.path.join('refs', 'heads', target_branch_name)} {merge_source_hash}"))
 
     else:
-        abort('merge unimplemented')
+        # 3-way merge
+
+        # get the diff of the current branch against the merge base
+        target_commit_diff = diff(GitArgParser.Instance().parse(f"diff {merge_base_hash} {merge_target_hash}"), prnt=False)
+        
+        # get the diff of the source commit against the merge base
+        source_commit_diff = diff(GitArgParser.Instance().parse(f"diff {merge_base_hash} {merge_source_hash}"), prnt=False)
+
+        # print("CURRENT: ")
+        # target_commit_diff.print()
+        # print("\n\n\n")
+
+        # print("SRC: ")
+        # source_commit_diff.print()
+        # print("\n\n\n")
+
+        # combine the file diffs into a list of tuples of the form (target_commit_file_diff, source_commit_file_diff)
+        # for each file. Either diff can be None
+        # TODO: this does not handle renames
+        filepaths_target_commit = set([dff.base_filepath for dff in target_commit_diff.getFileDiffs()])
+        filepaths_source_commit = set([dff.base_filepath for dff in source_commit_diff.getFileDiffs()])
+        all_filepaths = filepaths_target_commit.union(filepaths_source_commit)
+        combined_file_diffs = [
+            (target_commit_diff.getFileDiff(fp), source_commit_diff.getFileDiff(fp)) 
+            for fp in all_filepaths
+        ]
+
+        merge_base_files = Commit.FromHash(merge_base_hash).getTree().getFiles()
+        source_files = Commit.FromHash(merge_source_hash).getTree().getFiles()
+        target_files = Commit.FromHash(merge_target_hash).getTree().getFiles()
+
+        # merge each file
+        for (target_file_diff, source_file_diff) in combined_file_diffs:
+            # TODO: this does not handle renames
+            filepath = target_file_diff.base_filepath
+            if target_file_diff is None:
+                # TODO: apply source_file_diff to filepath
+                # with open(filepath, "w") as f:
+                #     f.write()
+                pass
+            elif source_file_diff is None:
+                # TODO: apply target_file_diff to filepath
+                pass
+            else:
+                # both commits have changed the file, need to reconcile
+
+                # first, get the content of the merge base version
+                if filepath not in merge_base_files:
+                    abort(f"something is wrong, merge base does not contain the file {filepath}")
+
+                # get the lines for each file being merged
+                base_file_lines = merge_base_files[filepath].content.split("\n")
+                source_file_lines = source_files[filepath].content.split("\n")
+                target_file_lines = target_files[filepath].content.split("\n")
+                
+                # go through both file diff traces line by line
+                target_trace_counter = 0
+                source_trace_counter = 0
+                base_lineno = 0
+                target_lineno = 0
+                source_lineno = 0
+                target_trace = target_file_diff.trace
+                source_trace = source_file_diff.trace
+
+                conflict = None
+                while True:
+                    target_trace_item = target_trace[target_trace_counter] if target_trace_counter < len(target_trace) else None
+                    source_trace_item = source_trace[source_trace_counter] if source_trace_counter < len(source_trace) else None
+
+                    target_line = target_file_lines[target_lineno]
+                    source_line = source_file_lines[source_lineno]
+                    Log.Debug(f"line: {base_file_lines[base_lineno]}, curr: {target_trace_item}, src: {source_trace_item}")
+
+                    in_conflict = False
+
+                    if target_trace_item == DiffTraceAction.MATCH and source_trace_item == DiffTraceAction.MATCH:
+                        base_lineno += 1
+                        target_trace_counter += 1
+                        source_trace_counter += 1
+                    elif target_trace_item == DiffTraceAction.MATCH and source_trace_item == DiffTraceAction.DELETE:
+                        # delete the line
+                        Log.Debug(f"\tDELETE: {base_file_lines[base_lineno]}")
+                        base_file_lines.pop(base_lineno)
+                        target_trace_counter += 1
+                        source_trace_counter += 1
+                    elif target_trace_item == DiffTraceAction.MATCH and source_trace_item == DiffTraceAction.ADD:
+                        # add the line from source
+                        Log.Debug(f"\tADD: {source_line}")
+                        base_file_lines.insert(base_lineno, "SOURCE: " + source_line)
+                        base_lineno += 1 # inc by 2 to skip the line that was just added
+                        source_trace_counter += 1 # Don't increment target_trace item because we need it for the next line
+
+                        target_lineno -= 1
+                    elif target_trace_item == DiffTraceAction.DELETE and source_trace_item == DiffTraceAction.DELETE:
+                        Log.Debug(f"\tDELETE: {base_file_lines[base_lineno]}")
+                        base_file_lines.pop(base_lineno)
+                        target_trace_counter += 1
+                        source_trace_counter += 1
+                    elif target_trace_item == DiffTraceAction.ADD and source_trace_item == DiffTraceAction.ADD:
+                        # TODO: this assumes conflicts are all the same length, need more heuristics
+                        if target_file_lines[target_lineno] == source_file_lines[source_lineno]:
+                            Log.Debug(f"\tMUTUAL_ADD: {target_line}")
+                            base_file_lines.insert(base_lineno, "BOTH: " + target_line)
+                            base_lineno += 1
+                        else:
+                            Log.Debug(f"\tCONFLICT: {target_line}, {source_line}")
+                            # base_file_lines.insert(base_lineno, "CONFLICT: " + target_line + ", " + source_line)
+                            if conflict is None:
+                                conflict = MergeConflict(base_lineno - 1, merge_source_rev, "HEAD") # TODO: always head??
+                            conflict.addSourceLine(source_line)
+                            conflict.addTargetLine(target_line)
+                            in_conflict = True
+                        target_trace_counter += 1
+                        source_trace_counter += 1
+                        # base_lineno += 1
+                    else:
+                        break
+
+                    if not in_conflict and conflict is not None:
+                        # We had a MergeConflict, but the conflict area ended
+                        conflict_lines = conflict.getAllLines()
+                        conflict_start = conflict.getStartLineno()
+                        for i in range(len(conflict_lines)):
+                            base_file_lines.insert(conflict_start + i, conflict_lines[i])
+
+                        base_lineno += len(conflict_lines)
+                        # reset conflict state
+                        conflict = None
+
+                    if target_trace_item is not None and target_trace_item != DiffTraceAction.DELETE:
+                        target_lineno += 1
+                    if source_trace_item is not None and source_trace_item != DiffTraceAction.DELETE:
+                        source_lineno += 1
+                    
+                print("NEW FILE:\n" + "\n".join(base_file_lines))
+
+                # TODO: update the index if there were conflicts (pretty sure we don't update if there weren't)
+                # stage 1 = merge base
+                # stage 2 = target
+                # stage 3 = source
+                # run "git ls-files -s --abbrev" to show this. also TODO: implement ls-files
 
 def commit(args):
     message = args.m
