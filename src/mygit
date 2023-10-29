@@ -3,14 +3,17 @@
 import sys
 import os
 import utils
+from datetime import datetime
 from index import Index, IndexEntry
 from log import Log
 from commit import Commit
 from tree import Tree, Blob
 from argparser import GitArgParser
 from diff import CommitDiff, DiffTraceAction
+from gitpath import GitPath
 
-MAIN_COMMAND = "mygit.py"
+
+MAIN_COMMAND = "mygit"
 
 def abort(err):
     print(err)
@@ -74,8 +77,8 @@ def diff(args, prnt=True):
         commit_diff = CommitDiff(tree1, tree2)
     else:
         # TODO: there are other cases
-        rev1_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev1}"), prnt=False)
-        rev2_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev2}"), prnt=False)
+        rev1_hash = rev_parse(GitArgParser.Parse(f"rev-parse {rev1}"), prnt=False)
+        rev2_hash = rev_parse(GitArgParser.Parse(f"rev-parse {rev2}"), prnt=False)
         tree1, tree2 = Commit.FromHash(rev1_hash).getTree(), Commit.FromHash(rev2_hash).getTree()
         commit_diff = CommitDiff(tree1, tree2)
 
@@ -90,8 +93,8 @@ def merge_base(args, prnt=True):
     rev1 = args.rev1
     rev2 = args.rev2
 
-    rev1_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev1}"), prnt=False)
-    rev2_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev2}"), prnt=False)
+    rev1_hash = rev_parse(GitArgParser.Parse(f"rev-parse {rev1}"), prnt=False)
+    rev2_hash = rev_parse(GitArgParser.Parse(f"rev-parse {rev2}"), prnt=False)
 
     rev1_reachable_commits = Commit.FromHash(rev1_hash).reachableCommits()
     rev2_reachable_commits = Commit.FromHash(rev2_hash).reachableCommits()
@@ -105,7 +108,11 @@ def merge_base(args, prnt=True):
     return None
     
 class MergeConflict:
-    def __init__(self, start_lineno, source_label, target_label):
+    def __init__(self, filepath, base_file_hash, source_file_hash, target_file_hash, start_lineno, source_label, target_label):
+        self.filepath = filepath # TODO: doesn't work for renames
+        self.base_file_hash = base_file_hash
+        self.source_file_hash = source_file_hash
+        self.target_file_hash = target_file_hash
         self.start_lineno = start_lineno
         self.source_label = source_label
         self.target_label = target_label
@@ -134,14 +141,23 @@ class MergeConflict:
             all_lines.append(line)
         all_lines.append(f">>>>>>> {self.source_label}")
         return all_lines
+    
+    def getBaseFileHash(self):
+        return self.base_file_hash
+    
+    def getSourceFileHash(self):
+        return self.source_file_hash
+    
+    def getTargetFileHash(self):
+        return self.target_file_hash
 
 
 def merge(args):
     merge_source_rev = args.branch_name
     target_branch_name = utils.current_branch()
 
-    merge_source_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {merge_source_rev}"), prnt=False)
-    merge_target_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {target_branch_name}"), prnt=False)
+    merge_source_hash = rev_parse(GitArgParser.Parse(f"rev-parse {merge_source_rev}"), prnt=False)
+    merge_target_hash = rev_parse(GitArgParser.Parse(f"rev-parse {target_branch_name}"), prnt=False)
 
     # If the commit hashes of the source and destination are the same, nothing to do
     if merge_source_hash == merge_target_hash:
@@ -152,7 +168,7 @@ def merge(args):
     # current_branch_reachable_commits = Commit.FromHash(current_branch_hash).reachableCommits()
 
     # find the merge base
-    merge_base_hash = merge_base(GitArgParser.Instance().parse(f"merge-base {args.branch_name} {target_branch_name}"), prnt=False)
+    merge_base_hash = merge_base(GitArgParser.Parse(f"merge-base {args.branch_name} {target_branch_name}"), prnt=False)
 
     # TODO: is this the only condition? what if merge_base_hash is in the history of current branch?
     # maybe gets more complicated with 
@@ -161,7 +177,7 @@ def merge(args):
         print(f"Updating {utils.shortened_hash(merge_target_hash)}..{utils.shortened_hash(merge_source_hash)}")
         print("Fast-Forward")
 
-        commit_diff = diff(GitArgParser.Instance().parse(f"diff {merge_base_hash} {merge_source_hash}"), prnt=False)
+        commit_diff = diff(GitArgParser.Parse(f"diff {merge_base_hash} {merge_source_hash}"), prnt=False)
         if commit_diff is not None:
             file_diffs = commit_diff.getFileDiffs()
             changes_to_print = {}
@@ -190,16 +206,16 @@ def merge(args):
 
         # update the files (for a fast-forward this is easy)
         utils.update_files_to_commit_hash(merge_source_hash)
-        update_ref(GitArgParser.Instance().parse(f"update-ref {os.path.join('refs', 'heads', target_branch_name)} {merge_source_hash}"))
+        update_ref(GitArgParser.Parse(f"update-ref {os.path.join('refs', 'heads', target_branch_name)} {merge_source_hash}"))
 
     else:
         # 3-way merge
 
         # get the diff of the current branch against the merge base
-        target_commit_diff = diff(GitArgParser.Instance().parse(f"diff {merge_base_hash} {merge_target_hash}"), prnt=False)
+        target_commit_diff = diff(GitArgParser.Parse(f"diff {merge_base_hash} {merge_target_hash}"), prnt=False)
         
         # get the diff of the source commit against the merge base
-        source_commit_diff = diff(GitArgParser.Instance().parse(f"diff {merge_base_hash} {merge_source_hash}"), prnt=False)
+        source_commit_diff = diff(GitArgParser.Parse(f"diff {merge_base_hash} {merge_source_hash}"), prnt=False)
 
         # print("CURRENT: ")
         # target_commit_diff.print()
@@ -224,6 +240,8 @@ def merge(args):
         source_files = Commit.FromHash(merge_source_hash).getTree().getFiles()
         target_files = Commit.FromHash(merge_target_hash).getTree().getFiles()
 
+        # TODO: can probably get this info from the index after the merging?
+        merge_has_conflicts = False
         # merge each file
         for (target_file_diff, source_file_diff) in combined_file_diffs:
             # TODO: this does not handle renames
@@ -243,10 +261,20 @@ def merge(args):
                 if filepath not in merge_base_files:
                     abort(f"something is wrong, merge base does not contain the file {filepath}")
 
+                # get the content of each file being merged
+                base_file_content = merge_base_files[filepath].content
+                source_file_content = source_files[filepath].content
+                target_file_content = target_files[filepath].content
+
+                # get the sha1 of each file being merged
+                base_file_hash = hash_object(GitArgParser.Parse(f"hash-object"), prnt=False, content_override=base_file_content)
+                source_file_hash = hash_object(GitArgParser.Parse(f"hash-object"), prnt=False, content_override=source_file_content)
+                target_file_hash = hash_object(GitArgParser.Parse(f"hash-object"), prnt=False, content_override=target_file_content)
+
                 # get the lines for each file being merged
-                base_file_lines = merge_base_files[filepath].content.split("\n")
-                source_file_lines = source_files[filepath].content.split("\n")
-                target_file_lines = target_files[filepath].content.split("\n")
+                base_file_lines = base_file_content.split("\n")
+                source_file_lines = source_file_content.split("\n")
+                target_file_lines = target_file_content.split("\n")
                 
                 # go through both file diff traces line by line
                 target_trace_counter = 0
@@ -258,6 +286,7 @@ def merge(args):
                 source_trace = source_file_diff.trace
 
                 conflict = None
+                conflicts = []
                 while True:
                     target_trace_item = target_trace[target_trace_counter] if target_trace_counter < len(target_trace) else None
                     source_trace_item = source_trace[source_trace_counter] if source_trace_counter < len(source_trace) else None
@@ -281,7 +310,7 @@ def merge(args):
                     elif target_trace_item == DiffTraceAction.MATCH and source_trace_item == DiffTraceAction.ADD:
                         # add the line from source
                         Log.Debug(f"\tADD: {source_line}")
-                        base_file_lines.insert(base_lineno, "SOURCE: " + source_line)
+                        base_file_lines.insert(base_lineno, source_line)
                         base_lineno += 1 # inc by 2 to skip the line that was just added
                         source_trace_counter += 1 # Don't increment target_trace item because we need it for the next line
 
@@ -301,7 +330,14 @@ def merge(args):
                             Log.Debug(f"\tCONFLICT: {target_line}, {source_line}")
                             # base_file_lines.insert(base_lineno, "CONFLICT: " + target_line + ", " + source_line)
                             if conflict is None:
-                                conflict = MergeConflict(base_lineno - 1, merge_source_rev, "HEAD") # TODO: always head??
+                                # base_blob_hash = 
+                                conflict = MergeConflict(filepath,
+                                                         base_file_hash,
+                                                         source_file_hash,
+                                                         target_file_hash,
+                                                         base_lineno - 1, 
+                                                         merge_source_rev, 
+                                                         "HEAD") # TODO: always head??
                             conflict.addSourceLine(source_line)
                             conflict.addTargetLine(target_line)
                             in_conflict = True
@@ -313,13 +349,7 @@ def merge(args):
 
                     if not in_conflict and conflict is not None:
                         # We had a MergeConflict, but the conflict area ended
-                        conflict_lines = conflict.getAllLines()
-                        conflict_start = conflict.getStartLineno()
-                        for i in range(len(conflict_lines)):
-                            base_file_lines.insert(conflict_start + i, conflict_lines[i])
-
-                        base_lineno += len(conflict_lines)
-                        # reset conflict state
+                        conflicts.append(conflict)
                         conflict = None
 
                     if target_trace_item is not None and target_trace_item != DiffTraceAction.DELETE:
@@ -327,13 +357,58 @@ def merge(args):
                     if source_trace_item is not None and source_trace_item != DiffTraceAction.DELETE:
                         source_lineno += 1
                     
-                print("NEW FILE:\n" + "\n".join(base_file_lines))
 
-                # TODO: update the index if there were conflicts (pretty sure we don't update if there weren't)
-                # stage 1 = merge base
-                # stage 2 = target
-                # stage 3 = source
-                # run "git ls-files -s --abbrev" to show this. also TODO: implement ls-files
+                index = Index.FromFile()
+                # insert all conflicts
+                for conflict in conflicts:
+                    conflict_lines = conflict.getAllLines()
+                    conflict_start = conflict.getStartLineno()
+                    for i in range(len(conflict_lines)):
+                        base_file_lines.insert(conflict_start + i, conflict_lines[i])
+
+                    # TODO: won't work for renames, deletions, etc
+                    merge_base_entry = IndexEntry.FromFile(filepath, conflict.getBaseFileHash())
+                    merge_base_entry.setStageInt(1)
+                    index.addEntry(merge_base_entry, key="hash")
+                    
+                    source_entry = IndexEntry.FromFile(filepath, conflict.getSourceFileHash())
+                    source_entry.setStageInt(3)
+                    index.addEntry(source_entry, key="hash")
+
+                    target_entry = index.getEntryWithHash(conflict.getTargetFileHash())
+                    target_entry.setStageInt(2)
+                    index.addEntry(target_entry, key="hash")
+
+                    index.writeToFile()
+
+                # TODO: make this work for renames, deletions, etc
+                with open(filepath, "w") as f:
+                    content = "\n".join(base_file_lines)
+                    f.write(content)
+
+                print(f"Auto-merging {filepath}")
+                if len(conflicts) > 0:
+                    merge_has_conflicts = True
+                    print(f"CONFLICT (content): Merge conflict in {filepath}")
+
+        if merge_has_conflicts:
+            print("Automatic merge failed; fix conflicts and then commit the result.")
+
+            # write to MERGE_HEAD, MERGE_MSG, ORIG_HEAD
+            with open(GitPath.Path(GitPath.MERGE_HEAD), "w") as f:
+                f.write(merge_source_hash)
+
+            with open(GitPath.Path(GitPath.ORIG_HEAD), "w") as f:
+                f.write(merge_target_hash)
+
+            with open(GitPath.Path(GitPath.MERGE_MSG), "w") as f:
+                f.write(f"Merge branch '{merge_source_rev}'", end="\n\n") #TODO doesn't need to be a branch
+                f.write("# Conflicts:")
+                for conflict in conflicts:
+                    print(f"#	{conflict.filepath}")
+
+                    # print("NEW FILE:\n" + "\n".join(base_file_lines))
+                
 
 def commit(args):
     message = args.m
@@ -345,13 +420,14 @@ def commit(args):
         abort("fatal: not on a branch")
 
     parent_commit = None
-    ref_file = os.path.join(".git", "refs", "heads", current_branch)
+    ref_file = GitPath.BranchPath(current_branch)
     if os.path.exists(ref_file):
         with open(ref_file, "r") as f:
             parent_commit = f.read()
     tree_hash = write_tree(prnt=False)
 
-    commit_file_content = f'tree {tree_hash}\n{"parent " + parent_commit if parent_commit else ""}\nauthor Elliot Dauber <elliotkdauber@gmail.com> 1697451735 +0900\ncommitter Elliot Dauber <elliotkdauber@gmail.com> 1697451735 +0900\n\n{message}\n'
+    signature = utils.signature() # TODO: is author ever different?
+    commit_file_content = f'tree {tree_hash}\n{"parent " + parent_commit if parent_commit else ""}\nauthor {signature}\ncommitter {signature}\n\n{message}\n'
     commit_file_header = f'commit {len(commit_file_content)}\0'
     commit_hash = utils.write_object_file((commit_file_header + commit_file_content).encode('utf-8'))
     print(f"[{current_branch} (root-commit) {utils.shortened_hash(commit_hash)}] {message}")
@@ -364,10 +440,18 @@ def commit(args):
     with open(ref_file, "w") as f:
         f.write(commit_hash)
 
+    # update the reflog
+    log_file = GitPath.BranchLogPath(current_branch)
+    utils.create_intermediate_dirs(log_file)
+    with open(log_file, 'a') as f:
+        f.write(f"{parent_commit if parent_commit else '0'*40} {commit_hash} {signature}	commit{' (initial)' if not parent_commit else ''}: {message}\n")
+    
+    # TODO: update HEAD log file?
+
 def add(args):
     filepath = args.file
     # TODO: is it ok to always include --add?
-    update_index_args = GitArgParser.Instance().parse(f"update-index --add {'--remove' if not os.path.exists(filepath) else ''} {filepath}")
+    update_index_args = GitArgParser.Parse(f"update-index --add {'--remove' if not os.path.exists(filepath) else ''} {filepath}")
     update_index(update_index_args)
 
 def restore(args):
@@ -376,7 +460,7 @@ def restore(args):
 
     if staged:
         # TODO: for some reason, after running this command, and then using the real git status, the file comes up as deleted
-        update_index_args = GitArgParser.Instance().parse(f"update-index --remove {filepath}")
+        update_index_args = GitArgParser.Parse(f"update-index --remove {filepath}")
         update_index(update_index_args)
     else:
         abort("unimplemented, gotta figure out what the behavior is here")
@@ -384,7 +468,7 @@ def restore(args):
 def rm(args):
     filepath = args.file
 
-    update_index_args = GitArgParser.Instance().parse(f"update-index --remove {filepath}")
+    update_index_args = GitArgParser.Parse(f"update-index --remove {filepath}")
     update_index(update_index_args)
 
     # TODO: what if filepath is a folder?
@@ -395,26 +479,33 @@ def log(args):
 
     commit_hash = None
     if rev is None:
-        # TODO: what if no commits yet?
         commit_hash = Commit.CurrentCommitHash()
         if commit_hash is None:
             print(f"fatal: your current branch '{utils.current_branch()}' does not have any commits yet")
             return
     else:
-        commit_hash = rev_parse(GitArgParser.Instance().parse(f"rev-parse {rev}"), prnt=False)
+        commit_hash = rev_parse(GitArgParser.Parse(f"rev-parse {rev}"), prnt=False)
         if commit_hash is None:
             print(f"fatal: ambiguous argument '{rev}': unknown revision or path not in the working tree.")
             return
             # print("Use '--' to separate paths from revisions, like this:")
             # print('git <command> [<revision>...] -- [<file>...]')
     commit = Commit.FromHash(commit_hash)
-    commit.printLog()
+    commit.printLog(args)
+
+def reflog(args):
+
+    if Commit.CurrentCommitHash() is None:
+        abort(f"fatal: your current branch '{utils.current_branch()}' does not have any commits yet")
+
+    # TODO: print reflog
+    abort('unimplemented')
 
 def branch(args):
     branch_name = args.branch_name
     delete_branch = args.d
 
-    heads_folder = os.path.join(".git", "refs", "heads")
+    heads_folder = GitPath.Path(GitPath.heads)
 
     if delete_branch:
         if branch_name is None:
@@ -422,7 +513,7 @@ def branch(args):
         if utils.current_branch() == branch_name:
             abort(f"error: Cannot delete branch '{branch_name}' checked out at '{os.path.abspath(os.curdir)}'")
 
-        ref_file = os.path.join(heads_folder, branch_name)
+        ref_file = GitPath.BranchPath(branch_name)
         if not os.path.exists(ref_file):
             abort(f"fatal: branch '{branch_name}' not found.")
         
@@ -443,6 +534,7 @@ def branch(args):
                 print(f"  {branch}")
         return
 
+    ref_file = GitPath.BranchPath(branch_name)
     slash_position = branch_name.find("/")
     if slash_position == 0:
         abort(f"fatal: '{branch_name}' is not a valid branch name")
@@ -450,13 +542,17 @@ def branch(args):
         intermediate_dirs = "/".join(branch_name.split("/")[:-1])
         os.makedirs(os.path.join(heads_folder, intermediate_dirs), exist_ok=True)
 
-    ref_file = os.path.join(heads_folder, branch_name)
     if os.path.exists(ref_file):
         abort(f"fatal: a branch named '{branch_name}' already exists")
 
     # TODO: what to do if no commits yet?
-    update_ref_args = GitArgParser.Instance().parse(f"update-ref {os.path.join('refs', 'heads', branch_name)} {Commit.CurrentCommitHash()}")
+    update_ref_args = GitArgParser.Parse(f"update-ref {os.path.join('refs', 'heads', branch_name)} {Commit.CurrentCommitHash()}")
     update_ref(update_ref_args)
+
+    log_file = GitPath.BranchLogPath(branch_name)
+    utils.create_intermediate_dirs(log_file)
+    with open(log_file, 'a') as f:
+        f.write(f"{'0'*40} {Commit.CurrentCommitHash()} {utils.signature()}	branch: Created from {utils.current_branch()}\n")
 
 def tag(args):
     tag_name = args.tag_name
@@ -469,10 +565,10 @@ def checkout(args):
     branch_name = args.branch_name
 
     if create_new_branch:
-        branch_args = GitArgParser.Instance().parse(f"branch {branch_name}")
+        branch_args = GitArgParser.Parse(f"branch {branch_name}")
         branch(branch_args)
 
-    branch_ref_file = os.path.join(".git", "refs", "heads", branch_name)
+    branch_ref_file = GitPath.BranchPath(branch_name)
     branch_commit = None
     with open(branch_ref_file, "r") as f:
         branch_commit = f.read().strip()
@@ -480,7 +576,7 @@ def checkout(args):
     utils.update_files_to_commit_hash(branch_commit)
 
     # update the HEAD ref
-    HEAD_file = os.path.join(".git", "HEAD")
+    HEAD_file = GitPath.Path(GitPath.HEAD)
     with open(HEAD_file, "w") as f:
         f.write(f"ref: refs/heads/{branch_name}")
 
@@ -495,15 +591,18 @@ def update_ref(args):
     with open(ref_file, "w") as f:
         f.write(commit_hash)
 
-def hash_object(args, prnt=True):
+# content_override provides a way to provide custom content without needing a file or stdin
+def hash_object(args, prnt=True, content_override=None):
     write = args.w
     stdin = args.stdin
     filename = args.filename
-    if not stdin and not filename:
+    if not stdin and not filename and not content_override:
         abort(f"usage: {MAIN_COMMAND} hash-object <-w> <--stdin | filename>")
 
     object_string = ""
-    if stdin:
+    if content_override is not None:
+        object_string = content_override
+    elif stdin:
         object_string = sys.stdin.read()
     else:
         with open(filename, "r") as f:
@@ -522,7 +621,7 @@ def hash_object(args, prnt=True):
     return sha1_hash
 
 def write_tree(prnt=True):
-    index = Index.FromFile(os.path.join(".git", "index"))
+    index = Index.FromFile()
     tree_hash = utils.create_tree(index)
     if prnt:
         print(tree_hash)
@@ -561,12 +660,11 @@ def cat_file(args):
             print(content.decode('utf-8'), end="")
 
 def read_index():
-    index = Index.FromFile(os.path.join(".git", "index"))
+    index = Index.FromFile()
     index.print()
 
 def update_index(args):
-    index_file = os.path.join(".git", "index")
-    index = Index.FromFile(index_file)
+    index = Index.FromFile()
     # Log.Debug("Index before update: ")
     # index.print()
     
@@ -590,16 +688,30 @@ def update_index(args):
             index.removeEntryWithFilepath(filepath)
         else:
 
-            hash_object_args = GitArgParser.Instance().parse(f"hash-object -w {filepath}")
+            hash_object_args = GitArgParser.Parse(f"hash-object -w {filepath}")
             object_hash = hash_object(hash_object_args, prnt=False)
 
             newEntry = IndexEntry.FromFile(filepath, object_hash)
             index.addEntry(newEntry)
 
-    index.writeToFile(index_file)
+    index.writeToFile()
     # Log.Debug("Index after update: ")
     # index.print()
 
+def ls_files(args):
+    stage = args.s
+    abbrev = args.abbrev
+
+    index = Index.FromFile()
+    for entry in index.entries:
+        filepath = entry.getFilepathStr()
+        if stage:
+            sha1 = entry.getSha1Str()
+            if abbrev:
+                sha1 = utils.shortened_hash(sha1)
+            print(f"{entry.getModeStr()} {sha1} {entry.getStageInt()}        {filepath}")
+        else:
+            print(filepath)
         
     
 def status():
@@ -610,12 +722,11 @@ def status():
     print(f"On branch {branch_name}")
 
     # See if there have been commits yet
-    ref_file = os.path.join(".git", "refs", "heads", branch_name)
+    ref_file = GitPath.BranchPath(branch_name)
     if not os.path.exists(ref_file):
         print("\nNo commits yet\n")
 
-    index_file = os.path.join(".git", "index")
-    index = Index.FromFile(index_file)
+    index = Index.FromFile()
 
     all_files = utils.files_in_current_dir()
 
@@ -662,6 +773,9 @@ def status():
                 # This file (that is in the index) is already in the current tree, but its hash in the tree is different
                 # Thus, it has been modified and that modification has been staged
                 staged_changes.append(f"modified:   {filepath}")
+
+    # TODO: above block should only handle non-conflict entries, and here we should handle conflict entries
+    # important: conflicts should come from the index, not from the working tree
 
 
     if current_commit is not None:
@@ -722,12 +836,14 @@ def init(args):
     os.mkdir(refs_dir)
     os.mkdir(heads_dir)
 
-    HEAD_file = os.path.join(git_dir, "HEAD")
+    HEAD_file = GitPath.Path(GitPath.HEAD)
     with open(HEAD_file, "w") as f:
         f.write("ref: refs/heads/main")
 
+    print(f"Initialized empty Git repository in {os.path.abspath(git_dir)}/")
+
 if __name__ == "__main__":
-    args = GitArgParser.Instance().parse()
+    args = GitArgParser.Parse()
 
     if args.command == "init":
         init(args)
@@ -753,6 +869,10 @@ if __name__ == "__main__":
         merge_base(args)
     elif args.command == 'restore':
         restore(args)
+    elif args.command == 'ls-files':
+        ls_files(args)
+    elif args.command == 'reflog':
+        reflog(args)
     elif args.command == 'rev-parse':
         rev_parse(args)
     elif args.command == 'diff':

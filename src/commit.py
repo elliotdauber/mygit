@@ -40,9 +40,22 @@ class Commit:
 
     # TODO: this is kinda awkward because we access the commit data from each reachable commit
     # instead of letting the commits print themselves
-    def printLog(self):
-        for commit in self.reachableCommits():
-            print(f"{utils.bcolors.WARNING}commit {commit.sha1}{utils.bcolors.ENDC}", end="")
+    def printLog(self, args):
+        commits_to_print = self.reachableCommits()
+        if args.reverse:
+            commits_to_print.reverse()
+
+        commits_left = args.n if args.n is not None else len(commits_to_print)
+        grep_str = args.grep
+            
+        for commit in commits_to_print:
+            if commits_left == 0:
+                break
+            
+            # TODO: use full grep regex and color matches
+            if grep_str is not None and commit.message.find(grep_str) == -1:
+                continue
+
             modifiers = []
             if Commit.CurrentCommitHash() == commit.sha1:
                 # TODO: is this the right condition?
@@ -58,17 +71,22 @@ class Commit:
                     if branch_commit == commit.sha1:
                         modifiers.append(f"{utils.bcolors.OKGREEN}{branch}{utils.bcolors.OKCYAN}")
 
-            # TODO: add tags to modifiers once tags are implemented
-
+            modifiers_str = ""
             if len(modifiers) > 0:
                 modifier_connector = f"{utils.bcolors.WARNING}, {utils.bcolors.ENDC}"
-                modifiers_str = modifier_connector.join(modifiers)
-                print(f" {utils.bcolors.WARNING}({modifiers_str}{utils.bcolors.WARNING}){utils.bcolors.ENDC}", end="")
-            print("")
-            print(f"    author {commit.author}")
-            print(f"    committer {commit.committer}")
-            print("")
-            print(f"    {commit.message}\n")
+                modifiers_str = f" {utils.bcolors.WARNING}({modifier_connector.join(modifiers)}{utils.bcolors.WARNING}){utils.bcolors.ENDC}"
+            # TODO: add tags to modifiers once tags are implemented
+            
+            if args.oneline:
+                print(f"{utils.bcolors.WARNING}{utils.shortened_hash(commit.sha1)}{utils.bcolors.ENDC}{modifiers_str} {commit.message}")
+            else:
+                print(f"{utils.bcolors.WARNING}commit {commit.sha1}{utils.bcolors.ENDC}{modifiers_str}")
+                print(f"    author {commit.author}")
+                print(f"    committer {commit.committer}")
+                print("")
+                print(f"    {commit.message}\n")
+
+            commits_left -= 1
 
     def getTree(self):
         return Tree.FromHash(self.tree_hash)

@@ -18,9 +18,15 @@ class GitArgParser:
 
         log_subparser = subparsers.add_parser('log')
         log_subparser.add_argument('rev', nargs='?', default=None)
+        log_subparser.add_argument('-n', type=int)
+        log_subparser.add_argument('--grep')
+        log_subparser.add_argument('--oneline', action='store_true')
+        log_subparser.add_argument('--reverse', action='store_true')
 
         merge_subparser = subparsers.add_parser('merge')
         merge_subparser.add_argument('branch_name')
+
+        reflog_subparser = subparsers.add_parser('reflog')
 
         merge_base_subparser = subparsers.add_parser('merge-base')
         merge_base_subparser.add_argument('rev1')
@@ -44,6 +50,10 @@ class GitArgParser:
 
         rm_subparser = subparsers.add_parser("rm")
         rm_subparser.add_argument("file")
+
+        ls_files_subparser = subparsers.add_parser('ls-files')
+        ls_files_subparser.add_argument('-s', action='store_true')
+        ls_files_subparser.add_argument('--abbrev', action='store_true')
 
         rev_parse_subparser = subparsers.add_parser('rev-parse')
         rev_parse_subparser.add_argument('rev')
@@ -87,8 +97,9 @@ class GitArgParser:
             GitArgParser.instance = GitArgParser()
         return GitArgParser.instance
     
-    def parse(self, argstring=None):
+    @staticmethod
+    def Parse(argstring=None):
         if argstring is None:
-            return self.parser.parse_args()
+            return GitArgParser.Instance().parser.parse_args()
 
-        return self.parser.parse_args(argstring.split())
+        return GitArgParser.Instance().parser.parse_args(argstring.split())

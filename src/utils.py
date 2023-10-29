@@ -1,6 +1,6 @@
 import hashlib
 import os
-import struct
+from datetime import datetime
 from log import Log
 import binascii
 import zlib
@@ -211,3 +211,14 @@ def update_files_to_commit_hash(commit_hash):
     new_index = Index.FromTree(new_tree)
     new_index.writeToFile(index_file)
     # new_index.print()
+
+# given a file path (not folder path), creates all intermediate dirs that don't yet exist
+def create_intermediate_dirs(filepath):
+    intermediate_dirs = "/".join(filepath.split("/")[:-1])
+    os.makedirs(intermediate_dirs, exist_ok=True)
+
+# TODO: is this a safe way to get the current time?
+def signature():
+    timestamp = str(int(datetime.timestamp(datetime.now()))) + " " + str(datetime.now().astimezone())[-6:].replace(":", "")
+     # TODO: get author details from config
+    return f"Elliot Dauber <elliotkdauber@gmail.com> {timestamp}"

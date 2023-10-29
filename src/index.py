@@ -4,6 +4,7 @@ import utils
 import binascii
 from log import Log
 from tree import Tree, Blob
+from gitpath import GitPath
 
 class IndexHeader:
     def __init__(self, num_entries, sig=b"DIRC", version=2):
@@ -80,7 +81,7 @@ class IndexEntry:
         print(f"\tmtime: {self.mtime}")
         print(f"\tdev: {self.dev}")
         print(f"\tino: {self.ino}")
-        print(f"\tmode: {'%06o' % self.mode}")
+        print(f"\tmode: {self.getModeStr()}")
         print(f"\tuid: {self.uid}")
         print(f"\tgid: {self.gid}")
         print(f"\tsize: {self.filesize}")
@@ -88,17 +89,37 @@ class IndexEntry:
         print(f"\tflags: {self.flags}")
         print(f"\tassume-valid: {self.getFlag(0b10000000)}")
         print(f"\textended: {self.getFlag(0b01000000)}")
-        print(f"\tstage: {self.getStage()}")
+        print(f"\tstage: {self.getStageInt()} {self.getStage()}")
         print(f"\tname: {self.getFilepathStr()}")
 
+    #TODO: redo the way flags are handled, make api nicer
     def getFlag(self, mask):
         return bool(self.flags & (mask << 8))
+    
+    def setFlag(self, mask, val):
+        if val:
+            self.flags |= (mask << 8)
+        else:
+            self.flags &= ~(mask << 8)
     
     def getStage(self):
         return (self.getFlag(0b00100000), self.getFlag(0b00010000))
     
+    def getStageInt(self):
+        stage = self.getStage()
+        return (stage[0] << 1) + stage[1]
+    
+    def setStageInt(self, stage):
+        if stage > 3:
+            return
+        self.setFlag(0b00100000, stage > 1)
+        self.setFlag(0b00010000, stage % 2 == 1)
+    
     def getMTime(self):
         return self.mtime
+    
+    def getModeStr(self):
+        return '%06o' % self.mode
     
     def getCTime(self):
         return self.ctime
@@ -111,7 +132,7 @@ class IndexEntry:
     
     def sortPred(self):
         stage = self.getStage()
-        return f"{self.filename}{'0' if stage[0] else '1'}{'0' if stage[1] else '1'}" # TODO: is this sorting of stage correct?
+        return f"{self.getFilepathStr()}{self.getStageInt()}"
 
     @staticmethod
     def FromFile(filepath, sha1):
@@ -142,7 +163,7 @@ class Index:
         self.entries = entries
         self.sortEntries()
     
-    def writeToFile(self, filepath):
+    def writeToFile(self, filepath=GitPath.Path(GitPath.index)):
         with open(filepath, "wb") as f:
             contents_before_checksum = b""
 
@@ -172,13 +193,18 @@ class Index:
         # print("\tchecksum: True")
         # print(f"\tsha1: {binascii.hexlify(self.checksum).decode('ascii')}")
 
-    def addEntry(self, entry):
+    def addEntry(self, entry, key="filepath"):
         # TODO: need this?
         # if self.containsEntryWithHash(entry.getSha1Str()):
         #     return
         
         # Remove any existing entry for the same file
-        self.removeEntryWithFilepath(entry.getFilepathStr())
+        if key == "filepath":
+            self.removeEntryWithFilepath(entry.getFilepathStr())
+        elif key == "hash":
+            self.removeEntryWithHash(entry.getSha1Str())
+        else:
+            return
 
         self.entries.append(entry)
         self.header.num_entries += 1
@@ -192,6 +218,18 @@ class Index:
             if entry.getSha1Str() == sha1:
                 return True
         return False
+    
+    def getEntryWithHash(self, sha1):
+        for entry in self.entries:
+            if entry.getSha1Str() == sha1:
+                return entry
+        return None
+    
+    def removeEntryWithHash(self, sha1):
+        entry = self.getEntryWithHash(sha1)
+        if entry is not None:
+            self.entries.remove(entry)
+            self.header.num_entries -= 1
     
     def containsEntryWithFilepath(self, filepath):
         for entry in self.entries:
@@ -215,7 +253,7 @@ class Index:
 
     # Takes some inspo from https://github.com/sbp/gin/blob/master/gin
     @staticmethod
-    def FromFile(index_filepath):
+    def FromFile(index_filepath=GitPath.Path(GitPath.index)):
         if not os.path.exists(index_filepath):
             Log.Debug(f"no index file exists at {index_filepath}, creating one")
             # Create a blank index file if none exists

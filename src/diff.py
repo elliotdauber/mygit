@@ -25,9 +25,9 @@ class FileDiff:
         # TODO: is this split sufficient?
         base_lines, target_lines = self.base_blob.content.split("\n"), self.target_blob.content.split("\n")
 
-        if base_lines[-1].strip() == '' and target_lines[-1].strip() == '':
-            # remove end line of both blobs if it is blank (not sure if this is totally right)
-            base_lines, target_lines = base_lines[:-1], target_lines[:-1]
+        # if base_lines[-1].strip() == '' and target_lines[-1].strip() == '':
+        #     # remove end line of both blobs if it is blank (not sure if this is totally right)
+        #     base_lines, target_lines = base_lines[:-1], target_lines[:-1]
 
         return (base_lines, target_lines)
     
