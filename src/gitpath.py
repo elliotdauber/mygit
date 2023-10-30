@@ -6,8 +6,9 @@ class GitPath(Enum):
     MERGE_HEAD = "MERGE_HEAD",
     MERGE_MSG = "MERGE_MSG",
     ORIG_HEAD = "ORIG_HEAD",
+    CHERRY_PICK_HEAD = "CHERRY_PICK_HEAD",
     index = "index",
-    heads = "refs/heads"
+    heads = "refs/heads",
     log_heads = "logs/refs/heads"
 
     @staticmethod

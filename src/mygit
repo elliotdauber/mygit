@@ -150,10 +150,40 @@ class MergeConflict:
     
     def getTargetFileHash(self):
         return self.target_file_hash
+    
+def rebase(args):
+    merge_source_rev = args.rev
+    target_branch_name = utils.current_branch()
 
+    merge_source_hash = rev_parse(GitArgParser.Parse(f"rev-parse {merge_source_rev}"), prnt=False)
+    merge_target_hash = rev_parse(GitArgParser.Parse(f"rev-parse {target_branch_name}"), prnt=False)
+
+    # If the commit hashes of the source and destination are the same, nothing to do
+    if merge_source_hash == merge_target_hash:
+        print("Already up to date.")
+        return
+
+    # find the merge base
+    merge_base_hash = merge_base(GitArgParser.Parse(f"merge-base {args.branch_name} {target_branch_name}"), prnt=False)
+
+    abort('unimplemented')
+
+def cherry_pick(args):
+    commit_rev = args.commit_rev
+    commit_hash = rev_parse(GitArgParser.Parse(f"rev-parse {commit_rev}"), prnt=False)
+    parents = Commit.FromHash(commit_hash).parents
+
+    if len(parents) > 1 and not args.m:
+        print(f"error: commit {commit_hash} is a merge but no -m option was given.")
+        abort("fatal: cherry-pick failed")
+
+    abort('unimplemented')
+
+    with open(GitPath.Path(GitPath.CHERRY_PICK_HEAD), "w") as f:
+        f.write(commit_hash)
 
 def merge(args):
-    merge_source_rev = args.branch_name
+    merge_source_rev = args.rev
     target_branch_name = utils.current_branch()
 
     merge_source_hash = rev_parse(GitArgParser.Parse(f"rev-parse {merge_source_rev}"), prnt=False)
@@ -245,16 +275,18 @@ def merge(args):
         # merge each file
         for (target_file_diff, source_file_diff) in combined_file_diffs:
             # TODO: this does not handle renames
-            filepath = target_file_diff.base_filepath
+            filepath = target_file_diff.base_filepath if target_file_diff else source_file_diff.base_filepath
+            print(filepath)
             if target_file_diff is None:
-                # TODO: apply source_file_diff to filepath
-                # with open(filepath, "w") as f:
-                #     f.write()
-                pass
+                with open(filepath, "w") as f:
+                    f.write(source_files[filepath].content)
+                add(GitArgParser.Parse(f"add {filepath}"))
             elif source_file_diff is None:
-                # TODO: apply target_file_diff to filepath
-                pass
+                with open(filepath, "w") as f:
+                    f.write(target_files[filepath].content)
+                add(GitArgParser.Parse(f"add {filepath}"))
             else:
+                print(f"{filepath}")
                 # both commits have changed the file, need to reconcile
 
                 # first, get the content of the merge base version
@@ -324,7 +356,7 @@ def merge(args):
                         # TODO: this assumes conflicts are all the same length, need more heuristics
                         if target_file_lines[target_lineno] == source_file_lines[source_lineno]:
                             Log.Debug(f"\tMUTUAL_ADD: {target_line}")
-                            base_file_lines.insert(base_lineno, "BOTH: " + target_line)
+                            base_file_lines.insert(base_lineno, target_line)
                             base_lineno += 1
                         else:
                             Log.Debug(f"\tCONFLICT: {target_line}, {source_line}")
@@ -390,6 +422,12 @@ def merge(args):
                 if len(conflicts) > 0:
                     merge_has_conflicts = True
                     print(f"CONFLICT (content): Merge conflict in {filepath}")
+                else:
+                    with open(filepath, "w") as f:
+                        f.write("\n".join(base_file_lines))
+                    add(GitArgParser.Parse(f"add {filepath}"))
+
+        default_merge_commit_msg = f"Merge branch '{merge_source_rev}'"
 
         if merge_has_conflicts:
             print("Automatic merge failed; fix conflicts and then commit the result.")
@@ -402,18 +440,19 @@ def merge(args):
                 f.write(merge_target_hash)
 
             with open(GitPath.Path(GitPath.MERGE_MSG), "w") as f:
-                f.write(f"Merge branch '{merge_source_rev}'", end="\n\n") #TODO doesn't need to be a branch
+                f.write(default_merge_commit_msg, end="\n\n") #TODO doesn't need to be a branch
                 f.write("# Conflicts:")
                 for conflict in conflicts:
                     print(f"#	{conflict.filepath}")
-
-                    # print("NEW FILE:\n" + "\n".join(base_file_lines))
+        else:
+            commit(GitArgParser.Parse(f"commit -m \"{default_merge_commit_msg}\""))
                 
 
 def commit(args):
-    message = args.m
-    if message is None:
+    if args.m is None:
         abort("fatal: must supply a message using -m")
+
+    message = " ".join(args.m)
 
     current_branch = utils.current_branch()
     if current_branch is None:
@@ -426,6 +465,7 @@ def commit(args):
             parent_commit = f.read()
     tree_hash = write_tree(prnt=False)
 
+    # TODO: add second parent for merges
     signature = utils.signature() # TODO: is author ever different?
     commit_file_content = f'tree {tree_hash}\n{"parent " + parent_commit if parent_commit else ""}\nauthor {signature}\ncommitter {signature}\n\n{message}\n'
     commit_file_header = f'commit {len(commit_file_content)}\0'
@@ -836,7 +876,7 @@ def init(args):
     os.mkdir(refs_dir)
     os.mkdir(heads_dir)
 
-    HEAD_file = GitPath.Path(GitPath.HEAD)
+    HEAD_file = GitPath.Path(GitPath.HEAD, prefix=repo_name)
     with open(HEAD_file, "w") as f:
         f.write("ref: refs/heads/main")
 
@@ -865,6 +905,10 @@ if __name__ == "__main__":
         checkout(args)
     elif args.command == 'merge':
         merge(args)
+    elif args.command == 'cherry-pick':
+        cherry_pick(args)
+    elif args.command == 'rebase':
+        rebase(args)
     elif args.command == 'merge-base':
         merge_base(args)
     elif args.command == 'restore':

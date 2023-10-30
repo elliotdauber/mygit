@@ -14,7 +14,7 @@ class GitArgParser:
         add_subparser.add_argument('file')
 
         commit_subparser = subparsers.add_parser('commit')
-        commit_subparser.add_argument('-m')
+        commit_subparser.add_argument('-m', nargs='+')
 
         log_subparser = subparsers.add_parser('log')
         log_subparser.add_argument('rev', nargs='?', default=None)
@@ -24,7 +24,14 @@ class GitArgParser:
         log_subparser.add_argument('--reverse', action='store_true')
 
         merge_subparser = subparsers.add_parser('merge')
-        merge_subparser.add_argument('branch_name')
+        merge_subparser.add_argument('rev')
+
+        cherry_pick_subparser = subparsers.add_parser('cherry-pick')
+        cherry_pick_subparser.add_argument('commit_rev')
+        cherry_pick_subparser.add_argument('-m', type=int)
+
+        rebase_subparser = subparsers.add_parser('rebase')
+        rebase_subparser.add_argument('rev')
 
         reflog_subparser = subparsers.add_parser('reflog')
 
@@ -99,6 +106,7 @@ class GitArgParser:
     
     @staticmethod
     def Parse(argstring=None):
+        print(argstring)
         if argstring is None:
             return GitArgParser.Instance().parser.parse_args()
 
