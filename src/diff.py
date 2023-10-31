@@ -31,6 +31,12 @@ class FileDiff:
 
         return (base_lines, target_lines)
     
+    def fileCreated(self):
+        return self.base_filepath is None and self.target_filepath is not None
+    
+    def fileDeleted(self):
+        return self.base_filepath is not None and self.target_filepath is None
+    
     def filepathChanged(self):
         return self.base_filepath != self.target_filepath
     
@@ -42,6 +48,18 @@ class FileDiff:
     
     def numChanges(self):
         return self.numInsertions() + self.numDeletions()
+    
+    def getBaseBlob(self):
+        return self.base_blob
+    
+    def getTargetBlob(self):
+        return self.target_blob
+    
+    def getBaseFilepath(self):
+        return self.base_filepath
+
+    def getTargetFilepath(self):
+        return self.target_filepath
 
     def print(self):
         print(f"diff --git a/{self.base_filepath} b/{self.target_filepath}")
@@ -185,3 +203,42 @@ class CommitDiff:
     def print(self):
         for file_diff in self.getFileDiffs():
             file_diff.print()
+
+    def printNumericalSummary(self):
+        num_insertions = 0
+        num_deletions = 0
+        for dff in self.getFileDiffs():
+            num_insertions += dff.numInsertions()
+            num_deletions += dff.numDeletions()
+
+        summary_parts = [f"{len(self.getFileDiffs())} files changed"]
+        if num_insertions > 0:
+            summary_parts.append(f"{num_insertions} insertions(+)")
+        if num_deletions > 0:
+            summary_parts.append(f"{num_deletions} deletions(-)")
+        print(f" {', '.join(summary_parts)}")
+        
+
+    def printVisualSummary(self):
+        changes_to_print = {}
+        num_insertions = 0
+        num_deletions = 0
+        for dff in self.getFileDiffs():
+            if not dff.filepathChanged():
+                insertions_str = f"{utils.bcolors.OKGREEN}{'+' * dff.numInsertions()}{utils.bcolors.ENDC}"
+                deletions_str = f"{utils.bcolors.FAIL}{'-' * dff.numDeletions()}{utils.bcolors.ENDC}"
+                changes_to_print[dff.base_filepath] = f"{dff.numChanges()} {insertions_str}{deletions_str}"
+                num_insertions += dff.numInsertions()
+                num_deletions += dff.numDeletions()
+
+        # print the changes overview for each file
+        rhs_length = sorted(map(lambda fp : len(fp), changes_to_print.keys()))[-1]
+        for filepath, change in sorted(changes_to_print.items()):
+            print(f" {filepath}{' ' * (rhs_length - len(filepath))} | {change}")
+    
+    def printExistenceChanges(self):
+        for dff in self.getFileDiffs():
+            if dff.fileCreated():
+                print(f"create mode {dff.getTargetBlob().mode} {dff.getTargetFilepath()}")
+            elif dff.fileDeleted():
+                print(f"delete mode {dff.getBaseBlob().mode} {dff.getBaseFilepath()}")

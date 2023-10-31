@@ -21,6 +21,13 @@ class Commit:
     
     def __hash__(self):
         return hash(self.sha1)
+    
+    def getParentHash(self, parent_idx=0):
+        # TODO: possible to have no parents? (first commit)
+        return self.parents[parent_idx if len(self.parents) > 1 else 0]
+    
+    def getCommitHash(self):
+        return self.sha1
 
     # returns all reachable Commits starting from the current Commit
     def reachableCommits(self):

@@ -45,7 +45,9 @@ class GitArgParser:
 
         branch_subparser = subparsers.add_parser('branch')
         branch_subparser.add_argument('-d', action="store_true")
+        branch_subparser.add_argument('--force', action="store_true")
         branch_subparser.add_argument('branch_name', nargs='?', default=None)
+        branch_subparser.add_argument('new_branch_base', nargs='?', default=None)
 
         tag_subparser = subparsers.add_parser('tag')
         tag_subparser.add_argument('-d', action="store_true")
@@ -71,6 +73,7 @@ class GitArgParser:
         checkout_subparser = subparsers.add_parser('checkout')
         checkout_subparser.add_argument('-b', action='store_true')
         checkout_subparser.add_argument('branch_name')
+        checkout_subparser.add_argument('new_branch_base', nargs='?', default=None)
 
         hash_object_subparser = subparsers.add_parser('hash-object')
         hash_object_subparser.add_argument('--stdin', action='store_true')
@@ -111,58 +114,58 @@ class GitArgParser:
 
         return GitArgParser.Instance().parser.parse_args(argstring.split())
     
-    def Execute(argstring=None):
+    def Execute(argstring=None, prnt=True,):
         args = GitArgParser.Parse(argstring)
 
         import commands
         if args.command == "init":
-            return commands.init(args)
+            return commands.init(args, prnt)
         elif args.command == "add":
-            return commands.add(args)
+            return commands.add(args, prnt)
         elif args.command == 'status':
-            return commands.status()
+            return commands.status(args, prnt)
         elif args.command == 'log':
-            return commands.log(args)
+            return commands.log(args, prnt)
         elif args.command == 'commit':
-            return commands.commit(args)
+            return commands.commit(args, prnt)
         elif args.command == 'stash':
-            return commands.stash(args)
+            return commands.stash(args, prnt)
         elif args.command == 'branch':
-            return commands.branch(args)
+            return commands.branch(args, prnt)
         elif args.command == 'tag':
-            return commands.tag(args)
+            return commands.tag(args, prnt)
         elif args.command == 'checkout':
-            return commands.checkout(args)
+            return commands.checkout(args, prnt)
         elif args.command == 'merge':
-            return commands.merge(args)
+            return commands.merge(args, prnt)
         elif args.command == 'cherry-pick':
-            return commands.cherry_pick(args)
+            return commands.cherry_pick(args, prnt)
         elif args.command == 'rebase':
-            return commands.rebase(args)
+            return commands.rebase(args, prnt)
         elif args.command == 'merge-base':
-            return commands.merge_base(args)
+            return commands.merge_base(args, prnt)
         elif args.command == 'restore':
-            return commands.restore(args)
+            return commands.restore(args, prnt)
         elif args.command == 'ls-files':
-            return commands.ls_files(args)
+            return commands.ls_files(args, prnt)
         elif args.command == 'reflog':
-            return commands.reflog(args)
+            return commands.reflog(args, prnt)
         elif args.command == 'rev-parse':
-            return commands.rev_parse(args)
+            return commands.rev_parse(args, prnt)
         elif args.command == 'diff':
-            return commands.diff(args)
+            return commands.diff(args, prnt)
         elif args.command == "hash-object":
-            return commands.hash_object(args)
+            return commands.hash_object(args, prnt)
         elif args.command == "cat-file":
-            return commands.cat_file(args)
+            return commands.cat_file(args, prnt)
         elif args.command == 'update-index':
-            return commands.update_index(args)
+            return commands.update_index(args, prnt)
         elif args.command == 'write-tree':
-            return commands.write_tree()
+            return commands.write_tree(args, prnt)
         elif args.command == 'read-index':
-            return commands.read_index()
+            return commands.read_index(args, prnt)
         elif args.command == 'update-ref':
-            return commands.update_ref(args)
+            return commands.update_ref(args, prnt)
         else:
             print(f"unknown command: {args.command}")
             exit(1)
