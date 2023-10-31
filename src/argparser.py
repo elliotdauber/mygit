@@ -106,8 +106,64 @@ class GitArgParser:
     
     @staticmethod
     def Parse(argstring=None):
-        print(argstring)
         if argstring is None:
             return GitArgParser.Instance().parser.parse_args()
 
         return GitArgParser.Instance().parser.parse_args(argstring.split())
+    
+    def Execute(argstring=None):
+        args = GitArgParser.Parse(argstring)
+
+        import commands
+        if args.command == "init":
+            return commands.init(args)
+        elif args.command == "add":
+            return commands.add(args)
+        elif args.command == 'status':
+            return commands.status()
+        elif args.command == 'log':
+            return commands.log(args)
+        elif args.command == 'commit':
+            return commands.commit(args)
+        elif args.command == 'stash':
+            return commands.stash(args)
+        elif args.command == 'branch':
+            return commands.branch(args)
+        elif args.command == 'tag':
+            return commands.tag(args)
+        elif args.command == 'checkout':
+            return commands.checkout(args)
+        elif args.command == 'merge':
+            return commands.merge(args)
+        elif args.command == 'cherry-pick':
+            return commands.cherry_pick(args)
+        elif args.command == 'rebase':
+            return commands.rebase(args)
+        elif args.command == 'merge-base':
+            return commands.merge_base(args)
+        elif args.command == 'restore':
+            return commands.restore(args)
+        elif args.command == 'ls-files':
+            return commands.ls_files(args)
+        elif args.command == 'reflog':
+            return commands.reflog(args)
+        elif args.command == 'rev-parse':
+            return commands.rev_parse(args)
+        elif args.command == 'diff':
+            return commands.diff(args)
+        elif args.command == "hash-object":
+            return commands.hash_object(args)
+        elif args.command == "cat-file":
+            return commands.cat_file(args)
+        elif args.command == 'update-index':
+            return commands.update_index(args)
+        elif args.command == 'write-tree':
+            return commands.write_tree()
+        elif args.command == 'read-index':
+            return commands.read_index()
+        elif args.command == 'update-ref':
+            return commands.update_ref(args)
+        else:
+            print(f"unknown command: {args.command}")
+            exit(1)
+
