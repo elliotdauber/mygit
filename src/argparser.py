@@ -34,6 +34,7 @@ class GitArgParser:
         rebase_subparser.add_argument('rev')
 
         reflog_subparser = subparsers.add_parser('reflog')
+        reflog_subparser.add_argument('ref', nargs='?', default='HEAD')
 
         merge_base_subparser = subparsers.add_parser('merge-base')
         merge_base_subparser.add_argument('rev1')

@@ -222,3 +222,40 @@ def signature():
     timestamp = str(int(datetime.timestamp(datetime.now()))) + " " + str(datetime.now().astimezone())[-6:].replace(":", "")
      # TODO: get author details from config
     return f"Elliot Dauber <elliotkdauber@gmail.com> {timestamp}"
+
+# Returns a colored, formatted string of the branch summary for a commit -- used for logs
+def branch_summary_for_commit(commit_hash):
+    modifiers = []
+    if Commit.CurrentCommitHash() == commit_hash:
+        # TODO: is this the right condition?
+        modifiers.append(f"{bcolors.OKCYAN}HEAD -> {bcolors.OKGREEN}{current_branch()}{bcolors.ENDC}")
+    
+    for branch in reversed(all_branches()):
+        if branch == current_branch():
+            continue
+
+        head_filepath = os.path.join(".git", "refs", "heads", branch)
+        with open(head_filepath, "r") as f:
+            branch_commit = f.read().strip()
+            if branch_commit == commit_hash:
+                modifiers.append(f"{bcolors.OKGREEN}{branch}{bcolors.OKCYAN}")
+
+    if len(modifiers) > 0:
+        modifier_connector = f"{bcolors.WARNING}, {bcolors.ENDC}"
+        return f"{bcolors.WARNING}({modifier_connector.join(modifiers)}{bcolors.WARNING}){bcolors.ENDC}"
+    return ""
+    # TODO: add tags to modifiers once tags are implemented
+
+# Returns how many generations back the ancestor is from the child
+# Returns None if not found in the ancestry tree
+# TODO: make sure handling of multiple parents is correct
+def n_ancestor(child_commit_hash, ancestor_commit_hash):
+    if child_commit_hash == ancestor_commit_hash:
+        return 0
+    current_commit = Commit.FromHash(child_commit_hash)
+    options = []
+    for parent in current_commit.parents:
+        parent_result = n_ancestor(parent, ancestor_commit_hash)
+        if parent_result is not None:
+            options.append(parent_result)
+    return 1 + min(options)

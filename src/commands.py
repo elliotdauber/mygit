@@ -1,7 +1,6 @@
 import sys
 import os
 import utils
-from datetime import datetime
 from index import Index, IndexEntry
 from log import Log
 from commit import Commit
@@ -10,8 +9,6 @@ from argparser import GitArgParser
 from diff import CommitDiff, DiffTraceAction
 from gitpath import GitPath
 
-
-MAIN_COMMAND = "mygit"
 
 def abort(err):
     print(err)
@@ -551,12 +548,35 @@ def log(args, prnt=True):
     commit.printLog(args)
 
 def reflog(args, prnt=True):
+    ref = args.ref
+    # TODO: make this actually work for HEAD
+    if ref == "HEAD":
+        ref = utils.current_branch()
 
-    if Commit.CurrentCommitHash() is None:
-        abort(f"fatal: your current branch '{utils.current_branch()}' does not have any commits yet")
+    ref_hash = GitArgParser.Execute(f'rev-parse {ref}', prnt=False)
+    if ref_hash is None:
+        return
+    
+    log_file = GitPath.BranchLogPath(ref)
+    if log_file is None:
+        return
+    
+    lines = []
+    with open(log_file, "r") as f:
+        lines = f.readlines()
 
-    # TODO: print reflog
-    abort('unimplemented')
+    lines.reverse()
+    for i in range(len(lines)):
+        line = lines[i]
+        # prev_hash = line[:40]
+        curr_hash = line[41:81]
+        message = line.split("\t")[1]
+        branch_summary = utils.branch_summary_for_commit(curr_hash)
+        print(f"{utils.bcolors.WARNING}{utils.shortened_hash(curr_hash)}{utils.bcolors.ENDC}", end="")
+        print(f" {branch_summary}" if len(branch_summary) > 0 else "", end="")
+        print(f" {ref}@{'{'}{i}{'}'}", end="")
+        print(f" {message}", end="")
+
 
 def branch(args, prnt=True):
     branch_name = args.branch_name

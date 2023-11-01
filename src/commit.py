@@ -63,31 +63,14 @@ class Commit:
             if grep_str is not None and commit.message.find(grep_str) == -1:
                 continue
 
-            modifiers = []
-            if Commit.CurrentCommitHash() == commit.sha1:
-                # TODO: is this the right condition?
-                modifiers.append(f"{utils.bcolors.OKCYAN}HEAD -> {utils.bcolors.OKGREEN}{utils.current_branch()}{utils.bcolors.ENDC}")
-            
-            for branch in utils.all_branches():
-                if branch == utils.current_branch():
-                    continue
-
-                head_filepath = os.path.join(".git", "refs", "heads", branch)
-                with open(head_filepath, "r") as f:
-                    branch_commit = f.read().strip()
-                    if branch_commit == commit.sha1:
-                        modifiers.append(f"{utils.bcolors.OKGREEN}{branch}{utils.bcolors.OKCYAN}")
-
-            modifiers_str = ""
-            if len(modifiers) > 0:
-                modifier_connector = f"{utils.bcolors.WARNING}, {utils.bcolors.ENDC}"
-                modifiers_str = f" {utils.bcolors.WARNING}({modifier_connector.join(modifiers)}{utils.bcolors.WARNING}){utils.bcolors.ENDC}"
-            # TODO: add tags to modifiers once tags are implemented
+            modifier_str = utils.branch_summary_for_commit(commit.getCommitHash())
+            if len(modifier_str) > 0:
+                modifier_str = " " + modifier_str
             
             if args.oneline:
-                print(f"{utils.bcolors.WARNING}{utils.shortened_hash(commit.sha1)}{utils.bcolors.ENDC}{modifiers_str} {commit.message}")
+                print(f"{utils.bcolors.WARNING}{utils.shortened_hash(commit.sha1)}{utils.bcolors.ENDC}{modifier_str} {commit.message}")
             else:
-                print(f"{utils.bcolors.WARNING}commit {commit.sha1}{utils.bcolors.ENDC}{modifiers_str}")
+                print(f"{utils.bcolors.WARNING}commit {commit.sha1}{utils.bcolors.ENDC}{modifier_str}")
                 print(f"    author {commit.author}")
                 print(f"    committer {commit.committer}")
                 print("")
