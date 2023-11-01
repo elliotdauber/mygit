@@ -8,6 +8,7 @@ import re
 from index import Index
 from commit import Commit
 from gitpath import GitPath
+import glob
 
 class bcolors:
     HEADER = '\033[95m'
@@ -30,9 +31,7 @@ def sha1hash_bytes(content):
     hasher.update(content)
     return hasher.digest()
 
-def files_in_current_dir():
-    # TODO: don't hardcode this
-    ignores = [".DS_Store", ".git"]
+def files_in_current_dir(ignored_ok=False):
     fileList = []
     def clean_path(path):
         if path.startswith("./"):
@@ -42,12 +41,11 @@ def files_in_current_dir():
     def files_in_dir_rec(dirToScan):
         for entry in os.scandir(dirToScan):
             entry_path = clean_path(entry.path)
-            if entry_path in ignores: continue
+            if not ignored_ok and ignored(entry_path): continue
             if entry.is_file():
                 fileList.append(entry_path)
             elif entry.is_dir():
                 files_in_dir_rec(entry_path)
-            # print(entry.stat())
     files_in_dir_rec(os.curdir)
     return fileList
 
@@ -227,9 +225,13 @@ def update_files_to_commit_hash(commit_hash):
     new_index.writeToFile()
     # new_index.print()
 
+def intermediate_dirs(filepath):
+    parts = filepath.split("/")
+    return "/".join(parts[:-1]) if len(parts) > 1 else ""
+
 # given a file path (not folder path), creates all intermediate dirs that don't yet exist
 def create_intermediate_dirs(filepath):
-    intermediate_dirs = "/".join(filepath.split("/")[:-1])
+    intermediate_dirs = intermediate_dirs(filepath)
     os.makedirs(intermediate_dirs, exist_ok=True)
 
 # TODO: is this a safe way to get the current time?
@@ -274,3 +276,26 @@ def n_ancestor(child_commit_hash, ancestor_commit_hash):
         if parent_result is not None:
             options.append(parent_result)
     return 1 + min(options)
+
+def ignored(filepath):
+    # TODO: don't hardcode?
+    ignores = [".DS_Store", ".git"]
+
+    if filepath in ignores:
+        return True
+
+    # TODO: don't use current_dir, use outer git dir
+    for gitignore_filepath in files_in_current_dir(ignored_ok=True):
+        filename = gitignore_filepath.split("/")[-1]
+        if filename == ".gitignore":
+            lines = []
+            with open(gitignore_filepath, "r") as f:
+                lines = f.readlines()
+            path = intermediate_dirs(gitignore_filepath)
+            for line in lines:
+                line = line.strip()
+                full_filepath = os.path.join(path, line) if path != "" else gitignore_filepath
+                if full_filepath == filepath or filepath in glob.glob(full_filepath):
+                    return True
+
+    return False

@@ -10,6 +10,7 @@ from diff import CommitDiff, DiffTraceAction
 from gitpath import GitPath
 from functools import reduce
 from reflog import Reflog
+import glob
 
 
 def abort(err):
@@ -521,9 +522,20 @@ def commit(args, prnt=True):
     Reflog.Commit(current_branch, commit_hash)
 
 def add(args, prnt=True):
-    filepath = args.file
-    # TODO: is it ok to always include --add?
-    GitArgParser.Execute(f"update-index --add {'--remove' if not os.path.exists(filepath) else ''} {filepath}")
+    file_pattern = args.file_pattern
+    # TODO: need much more robust file pattern expansion
+    # TODO: doesn't work with dotfiles yet. might not want to use glob
+    if os.path.isdir(file_pattern):
+        file_pattern += "/**/*"
+    if file_pattern.startswith("./"):
+        file_pattern = file_pattern[2:]
+    files = glob.glob(file_pattern, recursive=True)
+    # TODO: also "add" files that have been deleted when using glob
+    for filepath in files:
+        if os.path.isfile(filepath) and not utils.ignored(filepath):
+            # TODO: get filepath with respect to outer git dir
+            # TODO: is it ok to always include --add?
+            GitArgParser.Execute(f"update-index --add {'--remove' if not os.path.exists(filepath) else ''} {filepath}")
 
 def show(args, prnt=True):
     rev = args.rev

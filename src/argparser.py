@@ -11,7 +11,7 @@ class GitArgParser:
         init_subparser.add_argument('repo_name')
         
         add_subparser = subparsers.add_parser('add')
-        add_subparser.add_argument('file')
+        add_subparser.add_argument('file_pattern')
 
         commit_subparser = subparsers.add_parser('commit')
         commit_subparser.add_argument('-m', nargs='+')
