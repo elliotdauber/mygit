@@ -3,7 +3,7 @@ import os
 from log import Log
 from tree import Tree
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class Commit:
     def __init__(self, sha1, tree_hash, author, committer, message, parents=[]):
@@ -23,7 +23,8 @@ class Commit:
         return hash(self.sha1)
     
     def getParentHash(self, parent_idx=0):
-        # TODO: possible to have no parents? (first commit)
+        if len(self.parents) == 0:
+            return None
         return self.parents[parent_idx if len(self.parents) > 1 else 0]
     
     def getCommitHash(self):
@@ -36,14 +37,23 @@ class Commit:
             reachable.extend(Commit.FromHash(parent).reachableCommits())
 
         return sorted(list(set(reachable)), key=lambda commit : commit.commitDateTime(), reverse=True)
-                      
+
+    def commitAuthor(self):
+        # TODO: could be more complicated edge cases
+        return self.author[:self.author.find('>') + 1]
+
+    # String representation of datetime, including utc_offset
+    def commitDateTimeStr(self):
+        timestamp, utc_offset = self.committer[self.committer.find('>') + 2:].split(" ")
+        return f"{datetime.fromtimestamp(int(timestamp)).strftime('%a %b %d %H:%M:%S %Y')} {utc_offset}"
+
+    # Does not include utc offset
     def commitDateTime(self):
-        match = re.search(r'\b\d+\b', self.committer)
-        if match:
-            timestamp = int(match.group())
-            commit_datetime = datetime.utcfromtimestamp(timestamp)
-            return commit_datetime
-        return datetime.MINYEAR
+        # TODO: could be more complicated edge cases
+        timestamp, utc_offset = self.committer[self.committer.find('>') + 2:].split(" ")
+        hours, minutes = int(utc_offset[0] + utc_offset[1:3]), int(utc_offset[3:5])
+        offset = timedelta(hours=hours, minutes=minutes)
+        return datetime.fromtimestamp(int(timestamp)) - offset
 
     # TODO: this is kinda awkward because we access the commit data from each reachable commit
     # instead of letting the commits print themselves
@@ -71,8 +81,10 @@ class Commit:
                 print(f"{utils.bcolors.WARNING}{utils.shortened_hash(commit.sha1)}{utils.bcolors.ENDC}{modifier_str} {commit.message}")
             else:
                 print(f"{utils.bcolors.WARNING}commit {commit.sha1}{utils.bcolors.ENDC}{modifier_str}")
-                print(f"    author {commit.author}")
-                print(f"    committer {commit.committer}")
+                # print(f"    author {commit.author}")
+                # print(f"    committer {commit.committer}")
+                print(f"Author: {commit.commitAuthor()}")
+                print(f"Date:   {commit.commitDateTimeStr()}")
                 print("")
                 print(f"    {commit.message}\n")
 

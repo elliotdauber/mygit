@@ -8,6 +8,8 @@ from tree import Tree, Blob
 from argparser import GitArgParser
 from diff import CommitDiff, DiffTraceAction
 from gitpath import GitPath
+from functools import reduce
+from reflog import Reflog
 
 
 def abort(err):
@@ -15,11 +17,16 @@ def abort(err):
     exit(1)
 
 def rev_parse(args, prnt=True):
-    rev = args.rev
+    full_rev = args.rev
 
     symbolic_rev_files = ["HEAD", "ORIG_HEAD"]
     result = None
     ambigious = False
+
+    parts = full_rev.split("~")
+    rev = parts[0]
+    # TODO: is branch~2 same as branch~1~1? if so, shouldn't reduce here
+    num_parents_back = reduce(lambda x,y: x + y, map(lambda x : int(x) if x != '' else 1, parts[1:])) if len(parts) > 1 else 0
 
     if utils.is_valid_hash(rev):
         result = rev
@@ -30,18 +37,31 @@ def rev_parse(args, prnt=True):
                 content = f.read().strip()
                 if content.startswith("ref: "):
                     ref = content.split("ref: ")[1]
-                    result = utils.commit_hash_from_ref(ref)
+                    (result, ambigious) = utils.commit_hash_from_ref(ref)
                 elif utils.is_valid_hash(content):
                     result = content   
     else:        
         (result, ambigious) = utils.commit_hash_from_ref(rev)
+
+
+    def fail():
+        print(full_rev)
+        abort(f"fatal: ambiguous argument '{full_rev}': unknown revision or path not in the working tree.")
+        # print("Use '--' to separate paths from revisions, like this:")
+        # print("'git <command> [<revision>...] -- [<file>...]'")
+    
+    if result is not None:
+        commit = Commit.FromHash(result)
+        for _ in range(num_parents_back):
+            result = commit.getParentHash()
+            if result is None:
+                fail()
+            commit = Commit.FromHash(result)
+
     
     if prnt:
         if result is None:
-            print(rev)
-            print(f"fatal: ambiguous argument '{rev}': unknown revision or path not in the working tree.")
-            # print("Use '--' to separate paths from revisions, like this:")
-            # print("'git <command> [<revision>...] -- [<file>...]'")
+            fail()
         else:
             if ambigious:
                 print(f"warning: refname '{rev}' is ambiguous.")
@@ -467,6 +487,7 @@ def commit(args, prnt=True):
 
     message = " ".join(args.m)
 
+    # TODO: if HEAD is detached, this won't work
     current_branch = utils.current_branch()
     if current_branch is None:
         abort("fatal: not on a branch")
@@ -497,18 +518,56 @@ def commit(args, prnt=True):
     with open(ref_file, "w") as f:
         f.write(commit_hash)
 
-    # update the reflog
-    log_file = GitPath.BranchLogPath(current_branch)
-    utils.create_intermediate_dirs(log_file)
-    with open(log_file, 'a') as f:
-        f.write(f"{parent_commit if parent_commit else '0'*40} {commit_hash} {signature}	commit{' (initial)' if not parent_commit else ''}: {message}\n")
-    
-    # TODO: update HEAD log file?
+    Reflog.Commit(current_branch, commit_hash)
 
 def add(args, prnt=True):
     filepath = args.file
     # TODO: is it ok to always include --add?
     GitArgParser.Execute(f"update-index --add {'--remove' if not os.path.exists(filepath) else ''} {filepath}")
+
+def show(args, prnt=True):
+    rev = args.rev
+    quiet = args.quiet
+
+    GitArgParser.Execute(f'log {rev} -n 1')
+    if not quiet:
+        GitArgParser.Execute(f'diff {rev}~ {rev}')
+
+def revert(args, prnt=True):
+    rev = args.rev
+
+    dff = GitArgParser.Execute(f'diff {rev} {rev}~', prnt=False)
+    # dff.print()
+
+    # TODO: diff should be applied to the current commit
+
+    abort('unimplemented')
+
+def reset(args, prnt=True):
+    soft = args.soft
+    mixed = args.mixed
+    hard = args.hard
+    rev = args.rev
+
+    # make mixed the default if nothing else is specified
+    mixed = True if not soft and not hard else mixed
+
+    prev_hash = Commit.CurrentCommitHash()
+    rev_hash = GitArgParser.Execute(f"rev-parse {rev}", prnt=False)
+    commit = Commit.FromHash(rev_hash)
+    
+    if soft or mixed or hard:
+        GitArgParser.Execute(f"update-ref refs/heads/{utils.current_branch()} {rev_hash}")
+
+    if hard:
+        utils.update_files_to_commit_hash(rev_hash)
+        if prnt:
+            print(f"HEAD is now at {utils.shortened_hash(commit.getCommitHash())} {commit.message}")
+
+    if mixed or hard:
+        Index.FromTree(commit.getTree()).writeToFile()
+
+    Reflog.Reset(utils.current_branch(), prev_hash, rev_hash, rev)
 
 def restore(args, prnt=True):
     filepath = args.file
@@ -549,15 +608,12 @@ def log(args, prnt=True):
 
 def reflog(args, prnt=True):
     ref = args.ref
-    # TODO: make this actually work for HEAD
-    if ref == "HEAD":
-        ref = utils.current_branch()
 
     ref_hash = GitArgParser.Execute(f'rev-parse {ref}', prnt=False)
     if ref_hash is None:
         return
     
-    log_file = GitPath.BranchLogPath(ref)
+    log_file = GitPath.Path(GitPath.HEAD_log) if ref == "HEAD" else GitPath.BranchLogPath(ref)
     if log_file is None:
         return
     
@@ -602,6 +658,7 @@ def branch(args, prnt=True):
                 print(f"Deleted branch {branch_name} (was {utils.shortened_hash(branch_hash)}).")
 
         os.remove(ref_file)
+        Reflog.DeleteLog(branch_name)
         # TODO: could clean up intermediate folders that have become empty
         return
         
@@ -637,10 +694,7 @@ def branch(args, prnt=True):
     GitArgParser.Execute(f"update-ref refs/heads/{branch_name} {new_branch_commit_hash}")
 
     # Write to log
-    log_file = GitPath.BranchLogPath(branch_name)
-    utils.create_intermediate_dirs(log_file)
-    with open(log_file, 'a') as f:
-        f.write(f"{'0'*40} {Commit.CurrentCommitHash()} {utils.signature()}	branch: Created from {utils.current_branch()}\n")
+    Reflog.CreateBranch(branch_name, utils.current_branch())
 
 def tag(args, prnt=True):
     tag_name = args.tag_name
@@ -650,8 +704,13 @@ def tag(args, prnt=True):
 
 def checkout(args, prnt=True):
     create_new_branch = args.b
+    # TODO: this doesn't need to be a branch, can be detached
     branch_name = args.branch_name
     new_branch_base = args.new_branch_base
+
+    prev_branch = new_branch_base if new_branch_base is not None else utils.current_branch()
+    prev_commit = Commit.CurrentCommitHash()
+    prev_rev = prev_branch if prev_branch is not None else prev_commit
 
     if create_new_branch:
         GitArgParser.Execute(f"branch {branch_name} {new_branch_base if new_branch_base is not None else ''}")
@@ -668,17 +727,22 @@ def checkout(args, prnt=True):
     with open(HEAD_file, "w") as f:
         f.write(f"ref: refs/heads/{branch_name}")
 
+    Reflog.Checkout(prev_commit, branch_commit, prev_rev, branch_name)
+
     if prnt:
         print(f"Switched to {'a new ' if create_new_branch else ''}branch '{branch_name}'")
 
     
 def update_ref(args, prnt=True):
-    ref_file = os.path.join(".git", args.ref_file)
-    commit_hash = args.commit_hash
+    refname = args.refname
+    new_val = args.new_val
 
-    # TODO: check that args are valid
+    newval_hash = GitArgParser.Execute(f'rev-parse {new_val}', prnt=False)
+    (ref_file, ambiguous) = utils.file_from_ref(refname, noexist_ok=True)
+
+    # TODO: print ambiguous warning?
     with open(ref_file, "w") as f:
-        f.write(commit_hash)
+        f.write(newval_hash)
 
 # content_override provides a way to provide custom content without needing a file or stdin
 def hash_object(args, prnt=True, content_override=None):

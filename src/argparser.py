@@ -58,8 +58,21 @@ class GitArgParser:
         restore_subparser.add_argument('--staged', action='store_true')
         restore_subparser.add_argument('file')
 
+        reset_subparser = subparsers.add_parser('reset')
+        reset_subparser.add_argument('--soft', action='store_true')
+        reset_subparser.add_argument('--mixed', action='store_true')
+        reset_subparser.add_argument('--hard', action='store_true')
+        reset_subparser.add_argument('rev')
+
+        revert_subparser = subparsers.add_parser('revert')
+        revert_subparser.add_argument('rev')
+
         rm_subparser = subparsers.add_parser("rm")
         rm_subparser.add_argument("file")
+
+        show_subparser = subparsers.add_parser('show')
+        show_subparser.add_argument('-q', '--quiet', action='store_true')
+        show_subparser.add_argument('rev')
 
         ls_files_subparser = subparsers.add_parser('ls-files')
         ls_files_subparser.add_argument('-s', action='store_true')
@@ -95,8 +108,8 @@ class GitArgParser:
         update_index_subparser.add_argument('arg3', nargs='?', default=None)
 
         update_ref_subparser = subparsers.add_parser('update-ref')
-        update_ref_subparser.add_argument('ref_file')
-        update_ref_subparser.add_argument('commit_hash')
+        update_ref_subparser.add_argument('refname')
+        update_ref_subparser.add_argument('new_val')
 
         status_subparser = subparsers.add_parser('status')
         read_index_subparser = subparsers.add_parser('read-index')
@@ -145,6 +158,10 @@ class GitArgParser:
             return commands.rebase(args, prnt)
         elif args.command == 'merge-base':
             return commands.merge_base(args, prnt)
+        elif args.command == 'reset':
+            return commands.reset(args, prnt)
+        elif args.command == 'revert':
+            return commands.revert(args, prnt)
         elif args.command == 'restore':
             return commands.restore(args, prnt)
         elif args.command == 'ls-files':
@@ -155,6 +172,8 @@ class GitArgParser:
             return commands.rev_parse(args, prnt)
         elif args.command == 'diff':
             return commands.diff(args, prnt)
+        elif args.command == 'show':
+            return commands.show(args, prnt)
         elif args.command == "hash-object":
             return commands.hash_object(args, prnt)
         elif args.command == "cat-file":

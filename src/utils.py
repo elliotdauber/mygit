@@ -7,6 +7,7 @@ import zlib
 import re
 from index import Index
 from commit import Commit
+from gitpath import GitPath
 
 class bcolors:
     HEADER = '\033[95m'
@@ -51,8 +52,7 @@ def files_in_current_dir():
     return fileList
 
 def current_branch():
-    HEAD_file = os.path.join(".git", "HEAD")
-    with open(HEAD_file, "r") as f:
+    with open(GitPath.Path(GitPath.HEAD), "r") as f:
         while True:
             line = f.readline().strip()
             if line.startswith("ref: "):
@@ -94,9 +94,7 @@ def write_object_file(content):
     return sha1_hash
 
 def read_object_file(object_hash):
-    objects_dir = os.path.join(".git", "objects")
-    objects_subdir = os.path.join(objects_dir, object_hash[:2])
-    object_file = os.path.join(objects_subdir, object_hash[2:])
+    object_file = GitPath.ObjectPath(object_hash)
     object_compressed = b""
     with open(object_file, "rb") as f:
         object_compressed = f.read()
@@ -138,6 +136,16 @@ def create_tree(index, dirpath=""):
 
 # returns (hash, ambigious?)
 def commit_hash_from_ref(ref):
+    (filepath, ambigious) = file_from_ref(ref)
+    if filepath is not None and os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            return (f.read().strip(), ambigious)
+    return (None, False)
+
+# For a given ref (i.e. 'main' or 'heads/branch', returns the filepath that stores its commit hash
+# returns (filepath, ambiguous?)
+# if noexist_ok=True, will return filepath even if it doesn't exist yet
+def file_from_ref(ref, noexist_ok=False):
     parts = ref.split("/")
     ref_types = ["tags", "heads", "remotes"]
     
@@ -146,20 +154,19 @@ def commit_hash_from_ref(ref):
     # if this is a full ref, resolve it
     if parts[0] == "refs" and len(parts) >= 3:
         full_path = os.path.join(".git", ref)
-        if os.path.exists(full_path):
-            with open(full_path, "r") as f:
-                return (f.read().strip(), False)
+        if os.path.exists(full_path) or noexist_ok:
+            return (os.path.join(".git", ref), False)
         return (None, False)
 
     # if the ref starts with a ref_type, prepend "refs/" and recursively resolve
     if parts[0] in ref_types and len(parts) >= 2:
-        return (commit_hash_from_ref(f"refs/{ref}"), False)
+        return (file_from_ref(f"refs/{ref}")[0], False)
     
     # otherwise, this is a bare ref, try prepending each ref type and recursively resolve
     # if more than one ref_type matches, mark as ambiguous
     possible_hashes = []
     for ref_type in ref_types:
-        commit_hash = commit_hash_from_ref(f"refs/{ref_type}/{ref}")[0]
+        commit_hash = file_from_ref(f"refs/{ref_type}/{ref}")[0]
         if commit_hash is not None:
             possible_hashes.append(commit_hash)
     
@@ -174,13 +181,11 @@ def shortened_hash(s):
     return s[:7] if is_valid_hash(s) else s
 
 def update_ORIG_HEAD(s):
-    ORIG_HEAD_file = os.path.join(".git", "ORIG_HEAD")
-    with open(ORIG_HEAD_file, "w") as f:
+    with open(GitPath.Path(GitPath.ORIG_HEAD), "w") as f:
         f.write(s)
 
 def update_files_to_commit_hash(commit_hash):
-    index_file = os.path.join(".git", "index")
-    current_index = Index.FromFile(index_file)
+    current_index = Index.FromFile()
     new_commit = Commit.FromHash(commit_hash)
     new_tree = new_commit.getTree()
     new_tree_files = new_tree.getFiles()
@@ -201,7 +206,17 @@ def update_files_to_commit_hash(commit_hash):
     # TODO: right now, "added" files are deleted when switching to a new branch
     for entry in current_index.entries:
         filepath = entry.getFilepathStr()
-        if filepath not in new_tree_files.keys():
+        if filepath not in new_tree_files:
+            os.remove(filepath)
+            # Delete intermediate folders that are now empty
+            intermediate_dirs = "/".join(filepath.split("/")[:-1])
+            if intermediate_dirs != "":
+                os.removedirs(intermediate_dirs)
+
+    # Delete files currently in the working dir but not in the new tree
+    # TODO: this doesn't work if we are in a subdir
+    for filepath in files_in_current_dir():
+        if filepath not in new_tree_files:
             os.remove(filepath)
             # Delete intermediate folders that are now empty
             intermediate_dirs = "/".join(filepath.split("/")[:-1])
@@ -209,7 +224,7 @@ def update_files_to_commit_hash(commit_hash):
                 os.removedirs(intermediate_dirs)
 
     new_index = Index.FromTree(new_tree)
-    new_index.writeToFile(index_file)
+    new_index.writeToFile()
     # new_index.print()
 
 # given a file path (not folder path), creates all intermediate dirs that don't yet exist
@@ -234,7 +249,7 @@ def branch_summary_for_commit(commit_hash):
         if branch == current_branch():
             continue
 
-        head_filepath = os.path.join(".git", "refs", "heads", branch)
+        head_filepath = GitPath.BranchPath(branch)
         with open(head_filepath, "r") as f:
             branch_commit = f.read().strip()
             if branch_commit == commit_hash:
