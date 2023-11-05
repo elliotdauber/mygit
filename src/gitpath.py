@@ -5,6 +5,7 @@ class GitPath(Enum):
     HEAD = "HEAD",
     MERGE_HEAD = "MERGE_HEAD",
     MERGE_MSG = "MERGE_MSG",
+    MERGE_MODE = "MERGE_MODE",
     ORIG_HEAD = "ORIG_HEAD",
     CHERRY_PICK_HEAD = "CHERRY_PICK_HEAD",
     index = "index",

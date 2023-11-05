@@ -231,8 +231,8 @@ def intermediate_dirs(filepath):
 
 # given a file path (not folder path), creates all intermediate dirs that don't yet exist
 def create_intermediate_dirs(filepath):
-    intermediate_dirs = intermediate_dirs(filepath)
-    os.makedirs(intermediate_dirs, exist_ok=True)
+    int_dirs = intermediate_dirs(filepath)
+    os.makedirs(int_dirs, exist_ok=True)
 
 # TODO: is this a safe way to get the current time?
 def signature():
