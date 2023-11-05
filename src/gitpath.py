@@ -22,12 +22,15 @@ class GitPath(Enum):
             path = os.path.join(prefix, path)
         return path
     
+    @staticmethod
     def BranchPath(branch_name, prefix=None):
         return os.path.join(GitPath.Path(GitPath.heads, prefix=prefix), branch_name)
     
+    @staticmethod
     def BranchLogPath(branch_name, prefix=None):
         return os.path.join(GitPath.Path(GitPath.log_heads, prefix=prefix), branch_name)
     
+    @staticmethod
     def ObjectPath(object_hash, prefix=None):
         object_dir = object_hash[:2]
         object_file = object_hash[2:]

@@ -299,3 +299,10 @@ def ignored(filepath):
                     return True
 
     return False
+
+def read_merge_msg():
+    msg_file = GitPath.Path(GitPath.MERGE_MSG)
+    if os.path.exists(GitPath.Path(GitPath.MERGE_MSG)):
+        with open(msg_file, "r") as f:
+            return f.readline()
+    return ""

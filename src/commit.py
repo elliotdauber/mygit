@@ -23,9 +23,12 @@ class Commit:
         return hash(self.sha1)
     
     def getParentHash(self, parent_idx=0):
-        if len(self.parents) == 0:
+        if self.numParents() == 0:
             return None
         return self.parents[parent_idx if len(self.parents) > 1 else 0]
+    
+    def numParents(self):
+        return len(self.parents)
     
     def getCommitHash(self):
         return self.sha1
@@ -81,6 +84,11 @@ class Commit:
                 print(f"{utils.bcolors.WARNING}{utils.shortened_hash(commit.sha1)}{utils.bcolors.ENDC}{modifier_str} {commit.message}")
             else:
                 print(f"{utils.bcolors.WARNING}commit {commit.sha1}{utils.bcolors.ENDC}{modifier_str}")
+                if commit.numParents() > 1:
+                    print("Merge: ", end="")
+                    for i in range(commit.numParents()):
+                        print(utils.shortened_hash(commit.getParentHash(i)), end=" ")
+                    print("")
                 # print(f"    author {commit.author}")
                 # print(f"    committer {commit.committer}")
                 print(f"Author: {commit.commitAuthor()}")

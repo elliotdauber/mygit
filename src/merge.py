@@ -46,7 +46,7 @@ class ThreeWayMerge:
 
         index.writeToFile()
 
-    def _finishMergeWithConflicts(self, conflicts):
+    def _finishMerge(self, conflicts):
         # write to MERGE_HEAD, MERGE_MSG, MERGE_MODE, ORIG_HEAD
         with open(GitPath.Path(GitPath.MERGE_HEAD), "w") as f:
             f.write(self.merge_source_hash)
@@ -63,6 +63,11 @@ class ThreeWayMerge:
             f.write("# Conflicts:\n")
             for conflict in conflicts:
                 f.write(f"#	{conflict.getFilepath()}\n")
+
+        if len(conflicts) > 0:
+            print("Automatic merge failed; fix conflicts and then commit the result.")
+        else:
+            GitArgParser.Execute(f"commit")
 
     def merge(self):
         # combine the file diffs into a list of tuples of the form (target_commit_file_diff, source_commit_file_diff)
@@ -224,11 +229,8 @@ class ThreeWayMerge:
                         f.write("\n".join(base_file_lines))
                     GitArgParser.Execute(f"add {filepath}")
 
-        if merge_has_conflicts:
-            print("Automatic merge failed; fix conflicts and then commit the result.")
-            self._finishMergeWithConflicts(conflicts)
-        else:
-            GitArgParser.Execute(f"commit -m \"{self.default_merge_commit_msg}\"")
+        # TODO: rn, this fn expects conflicts to be unique per file, fix and update this
+        self._finishMerge(conflicts)
 
 class SimpleThreeWayMerge(ThreeWayMerge):
     def __init__(self, merge_base_hash, merge_source_rev, merge_source_hash, merge_target_hash):
@@ -258,13 +260,12 @@ class SimpleThreeWayMerge(ThreeWayMerge):
         for (target_file_diff, source_file_diff) in combined_file_diffs:
             # TODO: this does not handle renames
             filepath = target_file_diff.base_filepath if target_file_diff else source_file_diff.base_filepath
+            print(f"Auto-merging {filepath}")
             if target_file_diff is None:
-                print(f"Auto-merging {filepath}")
                 with open(filepath, "w") as f:
                     f.write(source_files[filepath].content)
                 GitArgParser.Execute(f"add {filepath}")
             elif source_file_diff is None:
-                print(f"Auto-merging {filepath}")
                 with open(filepath, "w") as f:
                     f.write(target_files[filepath].content)
                 GitArgParser.Execute(f"add {filepath}")
@@ -298,11 +299,7 @@ class SimpleThreeWayMerge(ThreeWayMerge):
 
                 print(f"CONFLICT (content): Merge conflict in {filepath}")
 
-        if len(conflicts) > 0:
-            print("Automatic merge failed; fix conflicts and then commit the result.")
-            self._finishMergeWithConflicts(conflicts)
-        else:
-            GitArgParser.Execute(f"commit -m \"{self.default_merge_commit_msg}\"")
+        self._finishMerge(conflicts)
 
 class MergeConflict:
     def __init__(self, filepath, base_file_hash, source_file_hash, target_file_hash, start_lineno, source_label, target_label):

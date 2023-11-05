@@ -200,7 +200,7 @@ class Index:
         
         # Remove any existing entry for the same file
         if key == "filepath":
-            self.removeEntryWithFilepath(entry.getFilepathStr())
+            self.removeAllEntriesWithFilepath(entry.getFilepathStr())
         elif key == "hash":
             self.removeEntryWithHash(entry.getSha1Str())
         else:
@@ -209,6 +209,7 @@ class Index:
         self.entries.append(entry)
         self.header.num_entries += 1
         self.sortEntries()
+        
 
     def sortEntries(self):
         self.entries.sort(key=lambda entry : entry.sortPred())
@@ -231,24 +232,32 @@ class Index:
             self.entries.remove(entry)
             self.header.num_entries -= 1
     
-    def containsEntryWithFilepath(self, filepath):
-        for entry in self.entries:
-            if entry.getFilepathStr() == filepath:
-                return True
-        return False
+    def containsEntryWithFilepath(self, filepath, stage=0):
+        return self.getEntryWithFilepath(filepath, stage=stage) is not None
     
-    def getEntryWithFilepath(self, filepath):
+    # Gets the entry with the given filepath and stage
+    def getEntryWithFilepath(self, filepath, stage=0):
         for entry in self.entries:
-            if entry.getFilepathStr() == filepath:
+            if entry.getFilepathStr() == filepath and entry.getStageInt() == stage:
                 return entry
         return None
     
-    def removeEntryWithFilepath(self, filepath):
-        entry = self.getEntryWithFilepath(filepath)
+    def removeEntryWithFilepath(self, filepath, stage=0):
+        entry = self.getEntryWithFilepath(filepath, stage=stage)
         if entry is not None:
             self.entries.remove(entry)
             self.header.num_entries -= 1
 
+    def removeAllEntriesWithFilepath(self, filepath):
+        self.removeEntryWithFilepath(filepath, stage=0)
+        self.removeEntryWithFilepath(filepath, stage=1)
+        self.removeEntryWithFilepath(filepath, stage=2)
+        self.removeEntryWithFilepath(filepath, stage=3)
+
+    def fileIsBeingMerged(self, filepath):
+        return self.containsEntryWithFilepath(filepath, stage=1) and \
+               self.containsEntryWithFilepath(filepath, stage=2) and \
+               self.containsEntryWithFilepath(filepath, stage=3)
 
 
     # Takes some inspo from https://github.com/sbp/gin/blob/master/gin

@@ -30,10 +30,10 @@ class Reflog:
         # TODO: delete any now-empty log dirs
     
     @staticmethod
-    def Commit(branch_name, commit_hash):
+    def Commit(branch_name, commit_hash, is_merge=False):
         commit = Commit.FromHash(commit_hash)
         parent_commit = commit.getParentHash()
-        Reflog.WriteLogLine(parent_commit, commit_hash, f"commit{' (initial)' if not parent_commit else ''}: {commit.message}", branch_name=branch_name)
+        Reflog.WriteLogLine(parent_commit, commit_hash, f"commit{' (initial)' if not parent_commit else ' (merge)' if is_merge else ''}: {commit.message}", branch_name=branch_name)
 
     @staticmethod
     def CreateBranch(branch_name, from_ref):

@@ -236,31 +236,41 @@ def merge(args, prnt=True):
 
 
 def commit(args, prnt=True):
-    if args.m is None:
+    is_merge = os.path.exists(GitPath.Path(GitPath.MERGE_MODE))
+
+    if args.m is None and not is_merge:
         abort("fatal: must supply a message using -m")
 
-    message = " ".join(args.m)
+    merge_msg = utils.read_merge_msg()
+    message = " ".join(args.m) if args.m is not None else merge_msg
 
     # TODO: if HEAD is detached, this won't work
     current_branch = utils.current_branch()
     if current_branch is None:
         abort("fatal: not on a branch")
-
+    
     parent_commit = None
     ref_file = GitPath.BranchPath(current_branch)
     if os.path.exists(ref_file):
         with open(ref_file, "r") as f:
-            parent_commit = f.read()
-    tree_hash = write_tree(prnt=False)
+            parent_commit = f.read().strip()
+    
+    merge_parent_commit = None
+    if is_merge:
+        merge_head_file = GitPath.Path(GitPath.MERGE_HEAD)
+        if os.path.exists(merge_head_file):
+            with open(merge_head_file) as f:
+                merge_parent_commit = f.read().strip()
 
-    # TODO: add second parent for merges
+    tree_hash = GitArgParser.Execute("write-tree", prnt=False)
+
     signature = utils.signature() # TODO: is author ever different?
-    commit_file_content = f'tree {tree_hash}\n{"parent " + parent_commit if parent_commit else ""}\nauthor {signature}\ncommitter {signature}\n\n{message}\n'
+    commit_file_content = f'tree {tree_hash}\n{"parent " + parent_commit if parent_commit else ""}\n{"parent " + merge_parent_commit if merge_parent_commit else ""}\nauthor {signature}\ncommitter {signature}\n\n{message}\n'
     commit_file_header = f'commit {len(commit_file_content)}\0'
     commit_hash = utils.write_object_file((commit_file_header + commit_file_content).encode('utf-8'))
     
     if prnt:
-        print(f"[{current_branch} (root-commit) {utils.shortened_hash(commit_hash)}] {message}")
+        print(f"[{current_branch}{' (root-commit)' if parent_commit is None else ''} {utils.shortened_hash(commit_hash)}] {message}")
 
     if parent_commit is not None:
         # TODO: handle the case where there is no parent commit yet, or if there are two parents
@@ -268,11 +278,19 @@ def commit(args, prnt=True):
         if prnt:
             commit_diff.printNumericalSummary()
             commit_diff.printExistenceChanges()
+
     #update refs/heads/{current_branch} with hash of file
     with open(ref_file, "w") as f:
         f.write(commit_hash)
 
-    Reflog.Commit(current_branch, commit_hash)
+    # cleanup merge housekeeping if there was any
+    if is_merge:
+        os.remove(GitPath.Path(GitPath.MERGE_MODE))
+        os.remove(GitPath.Path(GitPath.MERGE_MSG))
+        os.remove(GitPath.Path(GitPath.MERGE_HEAD))
+        os.remove(GitPath.Path(GitPath.ORIG_HEAD))
+
+    Reflog.Commit(current_branch, commit_hash, is_merge=is_merge)
 
 def add(args, prnt=True):
     file_pattern = args.file_pattern
@@ -538,7 +556,7 @@ def hash_object(args, prnt=True, content_override=None):
 
     return sha1_hash
 
-def write_tree(prnt=True):
+def write_tree(arg, prnt=True):
     index = Index.FromFile()
     tree_hash = utils.create_tree(index)
     if prnt:
