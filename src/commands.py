@@ -236,7 +236,7 @@ def merge(args, prnt=True):
 
 
 def commit(args, prnt=True):
-    is_merge = os.path.exists(GitPath.Path(GitPath.MERGE_MODE))
+    is_merge = utils.is_merge_in_progress()
 
     if args.m is None and not is_merge:
         abort("fatal: must supply a message using -m")
@@ -670,13 +670,16 @@ def status(args, prnt=True):
     untracked_files = []
     unstaged_changes = []
     staged_changes = []
+    unmerged_changes = []
 
     for file in all_files:
-        index_entry = index.getEntryWithFilepath(file)
-        if index_entry is None:
+        if not index.isFilepathTracked(file):
             untracked_files.append(file)
 
-    for entry in index.entries:
+    for filepath in index.getUnmergedFilepaths():
+        unmerged_changes.append(f"both modified:   {filepath}") #TODO: always 'both modified'?
+
+    for entry in index.getNormalEntries():
         filepath = entry.getFilepathStr()
 
         if current_commit is None:
@@ -717,16 +720,33 @@ def status(args, prnt=True):
         current_tree_files = current_tree.getFiles()
 
         for filepath in current_tree_files.keys():
-            if not os.path.exists(filepath) and not index.containsEntryWithFilepath(filepath):
+            if not index.isFilepathTracked(filepath):
                 # This file exists in the current commit, but not in the index
                 # This means it was deleted and removed from the index, so the deletion is staged
                 staged_changes.append(f"deleted:    {filepath}")
+
+    if len(unmerged_changes) > 0:
+        print('You have unmerged paths.')
+        print('  (fix conflicts and run "git commit")')
+        print('  (use "git merge --abort" to abort the merge)')
+        print("")
+    elif utils.is_merge_in_progress():
+        print('All conflicts fixed but you are still merging.')
+        print('  (use "git commit" to conclude merge)')
+        print("")
 
     if len(staged_changes) > 0:
         print('Changes to be committed:')
         print('  (use "git restore --staged <file>..." to unstage)')
         for change in sorted(staged_changes):
             print(f"{utils.bcolors.OKGREEN}        {change}{utils.bcolors.ENDC}")
+        print("")
+
+    if len(unmerged_changes) > 0:
+        print('Unmerged paths:')
+        print('  (use "git add <file>..." to mark resolution)')
+        for change in sorted(unmerged_changes):
+            print(f"{utils.bcolors.FAIL}        {change}{utils.bcolors.ENDC}")
         print("")
 
     if len(unstaged_changes) > 0:
@@ -744,7 +764,7 @@ def status(args, prnt=True):
             print(f"{utils.bcolors.FAIL}        {file}{utils.bcolors.ENDC}")
         print("")
 
-    if len(untracked_files) == 0 and len(unstaged_changes) == 0 and len(staged_changes) == 0:
+    if len(untracked_files) == 0 and len(unstaged_changes) == 0 and len(staged_changes) == 0 and len(unmerged_changes) == 0:
         if current_commit is None:
             print('nothing to commit (create/copy files and use "git add" to track)')
         else:

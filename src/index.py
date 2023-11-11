@@ -231,14 +231,18 @@ class Index:
         if entry is not None:
             self.entries.remove(entry)
             self.header.num_entries -= 1
+
+    def isFilepathTracked(self, filepath):
+        return self.containsEntryWithFilepath(filepath, stage=-1)
     
     def containsEntryWithFilepath(self, filepath, stage=0):
         return self.getEntryWithFilepath(filepath, stage=stage) is not None
     
     # Gets the entry with the given filepath and stage
+    # If stage == -1, returns first entry found with the given filepath
     def getEntryWithFilepath(self, filepath, stage=0):
         for entry in self.entries:
-            if entry.getFilepathStr() == filepath and entry.getStageInt() == stage:
+            if entry.getFilepathStr() == filepath and (stage == -1 or entry.getStageInt() == stage):
                 return entry
         return None
     
@@ -254,10 +258,25 @@ class Index:
         self.removeEntryWithFilepath(filepath, stage=2)
         self.removeEntryWithFilepath(filepath, stage=3)
 
-    def fileIsBeingMerged(self, filepath):
+    def fileIsUnmerged(self, filepath):
         return self.containsEntryWithFilepath(filepath, stage=1) and \
                self.containsEntryWithFilepath(filepath, stage=2) and \
                self.containsEntryWithFilepath(filepath, stage=3)
+    
+    def getUnmergedFilepaths(self):
+        unmerged = set()
+        for entry in self.entries:
+            filepath = entry.getFilepathStr()
+            if self.fileIsUnmerged(filepath):
+                unmerged.add(filepath)
+        return list(unmerged)
+
+    def getNormalEntries(self):
+        normal_entries = []
+        for entry in self.entries:
+            if not self.fileIsUnmerged(entry.getFilepathStr()):
+                normal_entries.append(entry)
+        return normal_entries
 
 
     # Takes some inspo from https://github.com/sbp/gin/blob/master/gin

@@ -254,7 +254,6 @@ class SimpleThreeWayMerge(ThreeWayMerge):
 
         index = Index.FromFile()
 
-        # TODO: can probably get this info from the index after the merging?
         conflicts = []
         # merge each file
         for (target_file_diff, source_file_diff) in combined_file_diffs:

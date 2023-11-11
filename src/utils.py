@@ -306,3 +306,6 @@ def read_merge_msg():
         with open(msg_file, "r") as f:
             return f.readline()
     return ""
+
+def is_merge_in_progress():
+    return os.path.exists(GitPath.Path(GitPath.MERGE_MODE))
