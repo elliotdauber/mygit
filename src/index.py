@@ -193,16 +193,21 @@ class Index:
         # print("\tchecksum: True")
         # print(f"\tsha1: {binascii.hexlify(self.checksum).decode('ascii')}")
 
-    def addEntry(self, entry, key="filepath"):
-        # TODO: need this?
-        # if self.containsEntryWithHash(entry.getSha1Str()):
-        #     return
-        
+    def addEntry(self, entry, key="filepath"):       
         # Remove any existing entry for the same file
+        # TODO: this works for 'mygit add' for merges b/c it kills all unmerged entries for filepath
+        # but isn't really correct. shouldn't assume we want to remove all entries here
         if key == "filepath":
             self.removeAllEntriesWithFilepath(entry.getFilepathStr())
         elif key == "hash":
-            self.removeEntryWithHash(entry.getSha1Str())
+            # TODO: this isn't really keying on hash. need to rework this whole
+            # part of the function
+            for existingEntry in self.entries:
+                if existingEntry.getSha1Str() == entry.getSha1Str() \
+                   and existingEntry.getFilepathStr() == entry.getFilepathStr() \
+                   and existingEntry.getStageInt() == entry.getStageInt():
+                    self.entries.remove(entry)
+                    self.header.num_entries -= 1
         else:
             return
 
@@ -220,6 +225,8 @@ class Index:
                 return True
         return False
     
+    # TODO: this is flawed because there could be multiple entries with the same hash
+    # (i.e. two files with the same contents)
     def getEntryWithHash(self, sha1):
         for entry in self.entries:
             if entry.getSha1Str() == sha1:

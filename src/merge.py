@@ -32,6 +32,10 @@ class ThreeWayMerge:
         # TODO: won't work for renames, deletions, etc
         filepath = conflict.getFilepath()
 
+        print("INDEX RIGHT BEFORE SAVING")
+        index.print()
+        print("\n\n\n")
+
         merge_base_entry = IndexEntry.FromFile(filepath, conflict.getBaseFileHash())
         merge_base_entry.setStageInt(1)
         index.addEntry(merge_base_entry, key="hash")
@@ -45,6 +49,10 @@ class ThreeWayMerge:
         index.addEntry(target_entry, key="hash")
 
         index.writeToFile()
+
+        print("INDEX RIGHT AFTER SAVING")
+        index.print()
+        print("\n\n\n")
 
     def _finishMerge(self, conflicts):
         # write to MERGE_HEAD, MERGE_MSG, MERGE_MODE, ORIG_HEAD
@@ -253,6 +261,9 @@ class SimpleThreeWayMerge(ThreeWayMerge):
         target_files = Commit.FromHash(self.merge_target_hash).getTree().getFiles()
 
         index = Index.FromFile()
+        print("INDEX BEFORE MERGE")
+        index.print()
+        print("\n\n")
 
         conflicts = []
         # merge each file

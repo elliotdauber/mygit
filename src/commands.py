@@ -701,6 +701,7 @@ def status(args, prnt=True):
         file_mtime = stat.st_mtime
         # Log.Debug(f"times for {filepath}:: real: {file_mtime}, stored: {entry_mtime}")
         if file_mtime > entry_mtime + 0.01: # TODO: remove this epsilon once nanoseconds are more exact
+            # TODO: after a merge, unchanged files show up as modified due to more recent mtime...wtf
             unstaged_changes.append(f"modified:   {filepath}")
 
         if current_commit is not None:
