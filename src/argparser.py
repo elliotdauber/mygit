@@ -24,11 +24,13 @@ class GitArgParser:
         log_subparser.add_argument('--reverse', action='store_true')
 
         merge_subparser = subparsers.add_parser('merge')
-        merge_subparser.add_argument('rev')
+        merge_subparser.add_argument('--abort', action='store_true')
+        merge_subparser.add_argument('rev', nargs='?', default=None)
 
         cherry_pick_subparser = subparsers.add_parser('cherry-pick')
-        cherry_pick_subparser.add_argument('commit_rev')
+        cherry_pick_subparser.add_argument('commit_rev', nargs='?', default=None)
         cherry_pick_subparser.add_argument('-m', type=int)
+        cherry_pick_subparser.add_argument('--abort', action='store_true')
 
         rebase_subparser = subparsers.add_parser('rebase')
         rebase_subparser.add_argument('rev')

@@ -10,13 +10,16 @@ from diff import CommitDiff, DiffTraceAction
 from gitpath import GitPath
 from functools import reduce
 from reflog import Reflog
-from merge import ThreeWayMerge, SimpleThreeWayMerge
+from merge import ThreeWayMerge, SimpleThreeWayMerge, MergeMode
 import glob
 
 
 def abort(err):
     print(err)
     exit(1)
+
+def hint(msg):
+    print(f'{utils.bcolors.WARNING}hint: {msg}{utils.bcolors.ENDC}')
 
 def rev_parse(args, prnt=True):
     full_rev = args.rev
@@ -124,6 +127,7 @@ def merge_base(args, prnt=True):
         return most_recent_common_ancestor
     return None
     
+# TODO: is untested, and need to implement --continue, --skip, --quit, and --abort
 def rebase(args, prnt=True):
     merge_source_rev = args.rev
     target_branch_name = utils.current_branch()
@@ -155,14 +159,32 @@ def rebase(args, prnt=True):
     # current_commit now stores the commit to be cherry-picked
     # cherry-pick each commit onto the rebase branch
     for commit in reversed(commits_to_cherry_pick):
-        successful = GitArgParser.Execute(f"cherry-pick {commit.getCommitHash()}", prnt=False)
-        # TODO: if not successful, ask user to resolve conflicts
+        commit_hash = commit.getCommitHash()
+        cherry_pick(GitArgParser.Parse(f"cherry-pick {commit_hash}"), prnt=False, for_rebase=True)
+        if utils.is_rebase_in_progress():
+            if prnt:
+                hint('Resolve all conflicts manually, mark them as resolved with')
+                hint('"mygit add/rm <conflicted_files>", then run "mygit rebase --continue".')
+                hint('You can instead skip this commit: run "mygit rebase --skip".')
+                hint('To abort and get back to the state before "mygit rebase", run "mygit rebase --abort".')
+            abort(f'Could not apply {utils.shortened_hash(commit_hash)}... author {commit.author} committer {commit.committer}')
 
     GitArgParser.Execute(f"branch --force {target_branch_name}", prnt=False)
     GitArgParser.Execute(f"checkout {target_branch_name}", prnt=False)
     GitArgParser.Execute(f"branch -d {temp_branch_name}", prnt=False) #TODO: should use -D
 
-def cherry_pick(args, prnt=True):
+# TODO: implement --continue and --skip. i think continue just commits, and skip just aborts?
+def cherry_pick(args, prnt=True, for_rebase=False):
+    abort_cp = args.abort
+
+    if abort_cp:
+        if not utils.is_cherry_pick_in_progress():
+            print('error: no cherry-pick or revert in progress')
+            abort('fatal: cherry-pick failed')
+        utils.abort_mergelike_operation()
+        utils.cleanup_cherry_pick_files()
+        return
+
     commit_rev = args.commit_rev
     commit_hash = GitArgParser.Execute(f"rev-parse {commit_rev}", prnt=False)
     parents = Commit.FromHash(commit_hash).parents
@@ -177,26 +199,37 @@ def cherry_pick(args, prnt=True):
         abort("fatal: cherry-pick failed")
     
     parent_commit_hash = parents[parent_index]
-    commit_diff = GitArgParser.Execute(f"diff {parent_commit_hash} {commit_hash}", prnt=False)
 
-    # file_diffs = commit_diff.getFileDiffs()
-    for file_diff in commit_diff.getFileDiffs():
-        filepath = file_diff.base_filepath # TODO: handle renames, deletions, etc
-        for trace in file_diff.trace:
-            if trace == DiffTraceAction.ADD:
-                # TODO: finish...how do we do this???
-                pass
-    
-    
-    abort('unimplemented')
+    # TODO: deal with cherry-pick not having parent, or current commit not having parent
 
-    with open(GitPath.Path(GitPath.CHERRY_PICK_HEAD), "w") as f:
-        f.write(commit_hash)
+    # Merge here is approximately a three-way merge where the base is the parent of the cherry-picked commit,
+    # the source is the cherry-picked commit, and the target is the current commit
+    twmerge = SimpleThreeWayMerge(parent_commit_hash, commit_rev, commit_hash, Commit.CurrentCommitHash(), mode=MergeMode.CHERRY_PICK if not for_rebase else MergeMode.REBASE)
+    twmerge.merge()
 
-    return True # TODO: return False if there are conflicts that need to be resolved
+    # if cherry-pick failed, print hints
+    if utils.is_cherry_pick_in_progress() and prnt:
+        hint('After resolving the conflicts, mark them with')
+        hint('"mygit add/rm <pathspec>", then run')
+        hint('"mygit cherry-pick --continue".')
+        hint('You can instead skip this commit with "mygit cherry-pick --skip".')
+        hint('To abort and get back to the state before "mygit cherry-pick",')
+        hint('run "mygit cherry-pick --abort".')
 
 def merge(args, prnt=True):
+    abort_merge = args.abort
+
+    if abort_merge:
+        if not utils.is_merge_in_progress():
+            abort('fatal: There is no merge to abort (MERGE_HEAD missing).')
+        utils.abort_mergelike_operation()
+        utils.cleanup_merge_files()
+        return
+
     merge_source_rev = args.rev
+    if merge_source_rev is None:
+        abort('fatal: No remote for the current branch.')
+
     target_branch_name = utils.current_branch()
 
     merge_source_hash = GitArgParser.Execute(f"rev-parse {merge_source_rev}", prnt=False)
@@ -285,10 +318,7 @@ def commit(args, prnt=True):
 
     # cleanup merge housekeeping if there was any
     if is_merge:
-        os.remove(GitPath.Path(GitPath.MERGE_MODE))
-        os.remove(GitPath.Path(GitPath.MERGE_MSG))
-        os.remove(GitPath.Path(GitPath.MERGE_HEAD))
-        os.remove(GitPath.Path(GitPath.ORIG_HEAD))
+        utils.cleanup_merge_files()
 
     Reflog.Commit(current_branch, commit_hash, is_merge=is_merge)
 
@@ -728,50 +758,50 @@ def status(args, prnt=True):
 
     if len(unmerged_changes) > 0:
         print('You have unmerged paths.')
-        print('  (fix conflicts and run "git commit")')
-        print('  (use "git merge --abort" to abort the merge)')
+        print('  (fix conflicts and run "mygit commit")')
+        print('  (use "mygit merge --abort" to abort the merge)')
         print("")
     elif utils.is_merge_in_progress():
         print('All conflicts fixed but you are still merging.')
-        print('  (use "git commit" to conclude merge)')
+        print('  (use "mygit commit" to conclude merge)')
         print("")
 
     if len(staged_changes) > 0:
         print('Changes to be committed:')
-        print('  (use "git restore --staged <file>..." to unstage)')
+        print('  (use "mygit restore --staged <file>..." to unstage)')
         for change in sorted(staged_changes):
             print(f"{utils.bcolors.OKGREEN}        {change}{utils.bcolors.ENDC}")
         print("")
 
     if len(unmerged_changes) > 0:
         print('Unmerged paths:')
-        print('  (use "git add <file>..." to mark resolution)')
+        print('  (use "mygit add <file>..." to mark resolution)')
         for change in sorted(unmerged_changes):
             print(f"{utils.bcolors.FAIL}        {change}{utils.bcolors.ENDC}")
         print("")
 
     if len(unstaged_changes) > 0:
         print('Changes not staged for commit:')
-        print('  (use "git add <file>..." to update what will be committed)')
-        print('  (use "git restore <file>..." to discard changes in working directory)')
+        print('  (use "mygit add <file>..." to update what will be committed)')
+        print('  (use "mygit restore <file>..." to discard changes in working directory)')
         for change in sorted(unstaged_changes):
             print(f"{utils.bcolors.FAIL}        {change}{utils.bcolors.ENDC}")
         print("")
 
     if len(untracked_files) > 0:
         print('Untracked files:')
-        print('  (use "git add <file>...\" to include in what will be committed)')
+        print('  (use "mygit add <file>...\" to include in what will be committed)')
         for file in sorted(untracked_files):
             print(f"{utils.bcolors.FAIL}        {file}{utils.bcolors.ENDC}")
         print("")
 
     if len(untracked_files) == 0 and len(unstaged_changes) == 0 and len(staged_changes) == 0 and len(unmerged_changes) == 0:
         if current_commit is None:
-            print('nothing to commit (create/copy files and use "git add" to track)')
+            print('nothing to commit (create/copy files and use "mygit add" to track)')
         else:
             print('nothing to commit, working tree clean')
     elif len(untracked_files) > 0 and len(unstaged_changes) == 0 and len(staged_changes) == 0:
-        print('nothing added to commit but untracked files present (use "git add" to track)')
+        print('nothing added to commit but untracked files present (use "mygit add" to track)')
             
 
 def init(args, prnt=True):    

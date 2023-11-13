@@ -8,6 +8,7 @@ import re
 from index import Index
 from commit import Commit
 from gitpath import GitPath
+from argparser import GitArgParser
 import glob
 
 class bcolors:
@@ -308,4 +309,25 @@ def read_merge_msg():
     return ""
 
 def is_merge_in_progress():
-    return os.path.exists(GitPath.Path(GitPath.MERGE_MODE))
+    return os.path.exists(GitPath.Path(GitPath.MERGE_HEAD))
+
+def is_cherry_pick_in_progress():
+    return os.path.exists(GitPath.Path(GitPath.CHERRY_PICK_HEAD))
+
+def cleanup_merge_files():
+    os.remove(GitPath.Path(GitPath.MERGE_MODE))
+    os.remove(GitPath.Path(GitPath.MERGE_MSG))
+    os.remove(GitPath.Path(GitPath.MERGE_HEAD))
+
+def cleanup_cherry_pick_files():
+    os.remove(GitPath.Path(GitPath.MERGE_MSG))
+    os.remove(GitPath.Path(GitPath.CHERRY_PICK_HEAD))
+
+def abort_mergelike_operation():
+    current_head = GitArgParser.Execute('rev-parse HEAD', prnt=False)
+    orig_head = GitArgParser.Execute('rev-parse ORIG_HEAD', prnt=False)
+    if current_head != orig_head:
+        with open(GitPath.Path(GitPath.HEAD), "w") as f:
+            f.write(orig_head)
+    
+    update_files_to_commit_hash(orig_head)

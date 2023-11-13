@@ -4,13 +4,21 @@ from index import Index, IndexEntry
 from diff import DiffTraceAction
 from log import Log
 from gitpath import GitPath
+import utils
+from enum import Enum
+
+class MergeMode(Enum):
+    MERGE = 0
+    CHERRY_PICK = 1
+    REBASE = 2
 
 class ThreeWayMerge:
-    def __init__(self, merge_base_hash, merge_source_rev, merge_source_hash, merge_target_hash):
+    def __init__(self, merge_base_hash, merge_source_rev, merge_source_hash, merge_target_hash, mode=MergeMode.MERGE):
         self.merge_base_hash = merge_base_hash
         self.merge_source_rev = merge_source_rev
         self.merge_source_hash = merge_source_hash
         self.merge_target_hash = merge_target_hash
+        self.mode = mode
 
         # get the diff of the current branch against the merge base
         self.target_diff = GitArgParser.Execute(f"diff {self.merge_base_hash} {self.merge_target_hash}", prnt=False)
@@ -55,15 +63,20 @@ class ThreeWayMerge:
         print("\n\n\n")
 
     def _finishMerge(self, conflicts):
-        # write to MERGE_HEAD, MERGE_MSG, MERGE_MODE, ORIG_HEAD
-        with open(GitPath.Path(GitPath.MERGE_HEAD), "w") as f:
-            f.write(self.merge_source_hash)
-
         with open(GitPath.Path(GitPath.ORIG_HEAD), "w") as f:
             f.write(self.merge_target_hash)
 
-        with open(GitPath.Path(GitPath.MERGE_MODE), "w") as f:
-            f.write("")
+        if self.mode == MergeMode.MERGE:
+            with open(GitPath.Path(GitPath.MERGE_HEAD), "w") as f:
+                f.write(self.merge_source_hash)
+            with open(GitPath.Path(GitPath.MERGE_MODE), "w") as f:
+                f.write("")
+        elif self.mode == MergeMode.CHERRY_PICK:
+            with open(GitPath.Path(GitPath.CHERRY_PICK_HEAD), "w") as f:
+                f.write(self.merge_source_hash)
+        elif self.mode == MergeMode.REBASE:
+            with open(GitPath.Path(GitPath.REBASE_HEAD), "w") as f:
+                f.write(self.merge_source_hash)
 
         with open(GitPath.Path(GitPath.MERGE_MSG), "w") as f:
             f.write(self.default_merge_commit_msg) #TODO doesn't need to be a branch
@@ -73,7 +86,10 @@ class ThreeWayMerge:
                 f.write(f"#	{conflict.getFilepath()}\n")
 
         if len(conflicts) > 0:
-            print("Automatic merge failed; fix conflicts and then commit the result.")
+            if self.mode == MergeMode.MERGE:
+                print("Automatic merge failed; fix conflicts and then commit the result.")
+            elif self.mode in [MergeMode.CHERRY_PICK, MergeMode.REBASE]:
+                print(f'error: could not apply {utils.shortened_hash(self.merge_source_hash)}... author {Commit.FromHash(self.merge_source_hash).author}')
         else:
             GitArgParser.Execute(f"commit")
 
@@ -241,8 +257,8 @@ class ThreeWayMerge:
         self._finishMerge(conflicts)
 
 class SimpleThreeWayMerge(ThreeWayMerge):
-    def __init__(self, merge_base_hash, merge_source_rev, merge_source_hash, merge_target_hash):
-        super().__init__(merge_base_hash, merge_source_rev, merge_source_hash, merge_target_hash)
+    def __init__(self, merge_base_hash, merge_source_rev, merge_source_hash, merge_target_hash, mode=MergeMode.MERGE):
+        super().__init__(merge_base_hash, merge_source_rev, merge_source_hash, merge_target_hash, mode=mode)
 
     def merge(self):
         # combine the file diffs into a list of tuples of the form (target_commit_file_diff, source_commit_file_diff)
